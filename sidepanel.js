@@ -191,7 +191,7 @@ function createPromptCard(prompt, folder, showFolderName, tokens = [], index = 0
       <button type="button" class="btn primary-action" data-action="use" data-id="${prompt.id}">使用</button>
       <button type="button" class="btn" data-action="edit" data-id="${prompt.id}">编辑</button>
       <div class="more-wrap">
-        <button type="button" class="btn more-action" data-action="more" data-id="${prompt.id}" aria-label="更多操作" title="更多操作">⋯</button>
+        <button type="button" class="btn more-action" data-action="more" data-id="${prompt.id}" aria-label="更多操作" title="更多操作" aria-haspopup="menu" aria-expanded="false">⋯</button>
         <div class="card-more-menu" role="menu">
           <button type="button" data-action="copy" data-id="${prompt.id}" role="menuitem">复制</button>
           <button type="button" data-action="pin" data-id="${prompt.id}" role="menuitem">${prompt.pinned ? '取消置顶' : '置顶'}</button>
@@ -268,15 +268,24 @@ function closePromptFolderFilter() {
   button.setAttribute('aria-expanded', 'false');
 }
 
+function openPromptFolderFilter() {
+  const root = document.getElementById('promptFolderFilter');
+  const button = document.getElementById('promptFolderFilterButton');
+  const menu = document.getElementById('promptFolderFilterMenu');
+  if (!root || !button || !menu) return;
+  root.classList.add('open');
+  menu.classList.remove('hidden');
+  button.setAttribute('aria-expanded', 'true');
+}
+
 function togglePromptFolderFilter() {
   const root = document.getElementById('promptFolderFilter');
   const button = document.getElementById('promptFolderFilterButton');
   const menu = document.getElementById('promptFolderFilterMenu');
   if (!root || !button || !menu) return;
   const willOpen = menu.classList.contains('hidden');
-  root.classList.toggle('open', willOpen);
-  menu.classList.toggle('hidden', !willOpen);
-  button.setAttribute('aria-expanded', String(willOpen));
+  if (willOpen) openPromptFolderFilter();
+  else closePromptFolderFilter();
 }
 
 function renderPromptFilterOptions() {
@@ -301,6 +310,65 @@ function renderPromptFilterOptions() {
     `<span class="count">${option.count}</span>`,
     '</button>'
   ].join('')).join('');
+}
+
+function getFocusableMenuItems(menu) {
+  return Array.from(menu.querySelectorAll('button:not([disabled])'))
+    .filter(item => item.offsetParent !== null);
+}
+
+function focusMenuItem(menu, direction = 1, preferredSelector = '.selected') {
+  const items = getFocusableMenuItems(menu);
+  if (items.length === 0) return;
+  const activeIndex = items.indexOf(document.activeElement);
+  let nextIndex = activeIndex;
+  if (activeIndex < 0) {
+    const preferredIndex = preferredSelector ? items.findIndex(item => item.matches(preferredSelector)) : -1;
+    nextIndex = preferredIndex >= 0 ? preferredIndex : (direction < 0 ? items.length - 1 : 0);
+  } else {
+    nextIndex = (activeIndex + direction + items.length) % items.length;
+  }
+  items[nextIndex].focus();
+}
+
+function focusMenuEdge(menu, toEnd = false) {
+  const items = getFocusableMenuItems(menu);
+  if (items.length === 0) return;
+  items[toEnd ? items.length - 1 : 0].focus();
+}
+
+function handleMenuKeyboard(event, menu, closeMenu, trigger) {
+  if (!menu || menu.classList.contains('hidden')) return false;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeMenu();
+    if (trigger) trigger.focus();
+    return true;
+  }
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    focusMenuItem(menu, event.key === 'ArrowDown' ? 1 : -1);
+    return true;
+  }
+  if (event.key === 'Home' || event.key === 'End') {
+    event.preventDefault();
+    focusMenuEdge(menu, event.key === 'End');
+    return true;
+  }
+  if ((event.key === 'Enter' || event.key === ' ') && document.activeElement && menu.contains(document.activeElement)) {
+    event.preventDefault();
+    document.activeElement.click();
+    return true;
+  }
+  return false;
+}
+
+function openMenuFromTrigger(event, openMenu, menu, focusDirection = 1) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter' && event.key !== ' ') return false;
+  event.preventDefault();
+  openMenu();
+  requestAnimationFrame(() => focusMenuItem(menu, event.key === 'ArrowUp' ? -1 : focusDirection));
+  return true;
 }
 
 function normalizeQuickScopeFolder() {
@@ -336,6 +404,18 @@ function closeQuickScopeMenus() {
   });
 }
 
+function openQuickScopeMenu(type) {
+  const isFolder = type === 'folder';
+  const picker = document.getElementById(isFolder ? 'quickScopeFolderPicker' : 'quickScopeModePicker');
+  const button = document.getElementById(isFolder ? 'quickScopeFolderButton' : 'quickScopeModeButton');
+  const menu = document.getElementById(isFolder ? 'quickScopeFolderMenu' : 'quickScopeModeMenu');
+  if (!picker || !button || !menu) return;
+  closeQuickScopeMenus();
+  picker.classList.add('open');
+  menu.classList.remove('hidden');
+  button.setAttribute('aria-expanded', 'true');
+}
+
 function toggleQuickScopeMenu(type) {
   const isFolder = type === 'folder';
   const picker = document.getElementById(isFolder ? 'quickScopeFolderPicker' : 'quickScopeModePicker');
@@ -343,10 +423,8 @@ function toggleQuickScopeMenu(type) {
   const menu = document.getElementById(isFolder ? 'quickScopeFolderMenu' : 'quickScopeModeMenu');
   if (!picker || !button || !menu) return;
   const willOpen = menu.classList.contains('hidden');
-  closeQuickScopeMenus();
-  picker.classList.toggle('open', willOpen);
-  menu.classList.toggle('hidden', !willOpen);
-  button.setAttribute('aria-expanded', String(willOpen));
+  if (willOpen) openQuickScopeMenu(type);
+  else closeQuickScopeMenus();
 }
 
 function renderQuickScopeSettings() {
@@ -872,19 +950,32 @@ function handlePromptActionClick(e) {
   const promptId = btn.dataset.id;
   if (!promptId) return;
   if (action === 'more') {
-    const wrap = btn.closest('.more-wrap');
-    const shouldOpen = wrap && !wrap.classList.contains('open');
-    document.querySelectorAll('.more-wrap.open').forEach(el => {
-      if (el !== wrap) el.classList.remove('open');
-    });
-    if (wrap) wrap.classList.toggle('open', !!shouldOpen);
+    togglePromptMoreMenu(btn);
     return;
   }
-  document.querySelectorAll('.more-wrap.open').forEach(el => el.classList.remove('open'));
+  closePromptMoreMenus();
   if (action === 'use') usePrompt(promptId);
   if (action === 'copy') copyPrompt(promptId);
   if (action === 'pin') togglePromptPinned(promptId);
   if (action === 'edit') editPrompt(promptId);
+}
+
+function closePromptMoreMenus(exceptWrap = null) {
+  document.querySelectorAll('.more-wrap.open').forEach(el => {
+    if (el === exceptWrap) return;
+    el.classList.remove('open');
+    const button = el.querySelector('button[data-action="more"]');
+    if (button) button.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function togglePromptMoreMenu(button, forceOpen) {
+  const wrap = button && button.closest('.more-wrap');
+  if (!wrap) return;
+  const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !wrap.classList.contains('open');
+  closePromptMoreMenus(wrap);
+  wrap.classList.toggle('open', shouldOpen);
+  button.setAttribute('aria-expanded', String(shouldOpen));
 }
 
 function handlePinnedManagerClick(e) {
@@ -1792,9 +1883,18 @@ document.getElementById('rescanCleanup').addEventListener('click', renderCleanup
 document.getElementById('cleanupEmpty').addEventListener('click', cleanupEmptyPrompts);
 document.getElementById('cleanupDuplicates').addEventListener('click', cleanupDuplicatePrompts);
 document.getElementById('promptsList').addEventListener('click', handlePromptActionClick);
+document.getElementById('promptsList').addEventListener('keydown', (e) => {
+  const moreButton = e.target.closest('button[data-action="more"]');
+  if (moreButton && openMenuFromTrigger(e, () => togglePromptMoreMenu(moreButton, true), moreButton.closest('.more-wrap').querySelector('.card-more-menu'))) return;
+  const menu = e.target.closest('.card-more-menu');
+  if (!menu) return;
+  const wrap = menu.closest('.more-wrap');
+  const trigger = wrap && wrap.querySelector('button[data-action="more"]');
+  handleMenuKeyboard(e, menu, () => closePromptMoreMenus(), trigger);
+});
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.more-wrap')) {
-    document.querySelectorAll('.more-wrap.open').forEach(el => el.classList.remove('open'));
+    closePromptMoreMenus();
   }
 });
 document.getElementById('promptSearch').addEventListener('input', (e) => {
@@ -1806,6 +1906,10 @@ document.getElementById('promptFolderFilterButton').addEventListener('click', (e
   e.stopPropagation();
   togglePromptFolderFilter();
 });
+document.getElementById('promptFolderFilterButton').addEventListener('keydown', (e) => {
+  const menu = document.getElementById('promptFolderFilterMenu');
+  openMenuFromTrigger(e, openPromptFolderFilter, menu);
+});
 document.getElementById('promptFolderFilterMenu').addEventListener('click', (e) => {
   const option = e.target.closest('[data-folder-id]');
   if (!option) return;
@@ -1813,6 +1917,9 @@ document.getElementById('promptFolderFilterMenu').addEventListener('click', (e) 
   closePromptFolderFilter();
   renderPromptFilterOptions();
   renderPrompts();
+});
+document.getElementById('promptFolderFilterMenu').addEventListener('keydown', (e) => {
+  handleMenuKeyboard(e, e.currentTarget, closePromptFolderFilter, document.getElementById('promptFolderFilterButton'));
 });
 document.addEventListener('click', (e) => {
   const root = document.getElementById('promptFolderFilter');
@@ -1828,6 +1935,9 @@ document.getElementById('quickScopeModeButton').addEventListener('click', (e) =>
   e.stopPropagation();
   toggleQuickScopeMenu('mode');
 });
+document.getElementById('quickScopeModeButton').addEventListener('keydown', (e) => {
+  openMenuFromTrigger(e, () => openQuickScopeMenu('mode'), document.getElementById('quickScopeModeMenu'));
+});
 document.getElementById('quickScopeModeMenu').addEventListener('click', (e) => {
   const option = e.target.closest('[data-quick-scope-mode]');
   if (!option) return;
@@ -1839,10 +1949,16 @@ document.getElementById('quickScopeModeMenu').addEventListener('click', (e) => {
   renderQuickScopeSettings();
   saveQuickScopeSettings().catch(() => {});
 });
+document.getElementById('quickScopeModeMenu').addEventListener('keydown', (e) => {
+  handleMenuKeyboard(e, e.currentTarget, closeQuickScopeMenus, document.getElementById('quickScopeModeButton'));
+});
 document.getElementById('quickScopeFolderButton').addEventListener('click', (e) => {
   e.preventDefault();
   e.stopPropagation();
   toggleQuickScopeMenu('folder');
+});
+document.getElementById('quickScopeFolderButton').addEventListener('keydown', (e) => {
+  openMenuFromTrigger(e, () => openQuickScopeMenu('folder'), document.getElementById('quickScopeFolderMenu'));
 });
 document.getElementById('quickScopeFolderMenu').addEventListener('click', (e) => {
   const option = e.target.closest('[data-quick-scope-folder]');
@@ -1852,9 +1968,18 @@ document.getElementById('quickScopeFolderMenu').addEventListener('click', (e) =>
   renderQuickScopeSettings();
   saveQuickScopeSettings().catch(() => {});
 });
+document.getElementById('quickScopeFolderMenu').addEventListener('keydown', (e) => {
+  handleMenuKeyboard(e, e.currentTarget, closeQuickScopeMenus, document.getElementById('quickScopeFolderButton'));
+});
 document.addEventListener('click', (e) => {
   const root = document.querySelector('.quick-scope-settings');
   if (root && !root.contains(e.target)) closeQuickScopeMenus();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  closePromptFolderFilter();
+  closeQuickScopeMenus();
+  closePromptMoreMenus();
 });
 document.getElementById('aiTargetsList').addEventListener('click', handleAiListActionClick);
 document.getElementById('selectionPromptsList').addEventListener('click', handleAiListActionClick);
