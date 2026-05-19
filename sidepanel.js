@@ -52,8 +52,13 @@ async function loadAiConfig() {
 }
 
 async function saveFolders() {
-  await chrome.storage.local.set({ folders });
-  chrome.runtime.sendMessage({ action: 'rebuildMenu' }).catch(() => {});
+  try {
+    await chrome.storage.local.set({ folders });
+    chrome.runtime.sendMessage({ action: 'rebuildMenu' }).catch(() => {});
+  } catch (error) {
+    notifyStorageError('保存提示词失败', error);
+    throw error;
+  }
 }
 
 async function loadQuickScopeSettings() {
@@ -66,19 +71,41 @@ async function loadQuickScopeSettings() {
 }
 
 async function saveQuickScopeSettings() {
-  await chrome.storage.local.set({
-    quickPromptScopeMode,
-    quickPromptScopeFolderId
-  });
+  try {
+    await chrome.storage.local.set({
+      quickPromptScopeMode,
+      quickPromptScopeFolderId
+    });
+  } catch (error) {
+    notifyStorageError('保存快捷范围失败', error);
+    throw error;
+  }
 }
 
 async function saveAiConfig() {
-  await chrome.storage.local.set({
-    aiOnSelectionEnabled,
-    aiTargets,
-    selectionPrompts
-  });
-  chrome.runtime.sendMessage({ action: 'rebuildMenu' }).catch(() => {});
+  try {
+    await chrome.storage.local.set({
+      aiOnSelectionEnabled,
+      aiTargets,
+      selectionPrompts
+    });
+    chrome.runtime.sendMessage({ action: 'rebuildMenu' }).catch(() => {});
+  } catch (error) {
+    notifyStorageError('保存选中文本处理配置失败', error);
+    throw error;
+  }
+}
+
+function formatStorageError(error) {
+  const message = error && (error.message || String(error)) || '未知错误';
+  const quotaHint = /quota|exceed|storage/i.test(message)
+    ? '\n\n可能是本地存储空间不足。建议先导出备份，再使用“清理数据”删除空内容或重复提示词。'
+    : '';
+  return message + quotaHint;
+}
+
+function notifyStorageError(title, error) {
+  alert(title + '：\n' + formatStorageError(error));
 }
 
 function applyTheme(theme) {
@@ -1338,6 +1365,8 @@ function normalizeImportedFolders(data) {
       id: p.id || uuid(),
       title: p.title || '未命名提示词',
       text: p.text || '',
+      sourceUrl: p.sourceUrl || '',
+      sourceTitle: p.sourceTitle || '',
       pinned: !!p.pinned,
       pinnedAt: p.pinned ? (p.pinnedAt || p.timestamp || new Date().toISOString()) : '',
       quickAt: p.quickAt || '',
@@ -1931,7 +1960,12 @@ document.getElementById('importFile').addEventListener('change', (e) => {
 
 document.getElementById('autoPaste').addEventListener('change', (e) => {
   const on = e.target.checked;
-  chrome.runtime.sendMessage({ action: on ? 'enableAutoPaste' : 'disableAutoPaste' }, () => {});
+  chrome.runtime.sendMessage({ action: on ? 'enableAutoPaste' : 'disableAutoPaste' }, (response) => {
+    if (chrome.runtime.lastError || !response || !response.success) {
+      e.target.checked = !on;
+      alert('保存粘贴设置失败：\n' + (chrome.runtime.lastError && chrome.runtime.lastError.message || response && response.error || '未知错误'));
+    }
+  });
 });
 
 document.getElementById('aiSelectionEnabled').addEventListener('change', (e) => {

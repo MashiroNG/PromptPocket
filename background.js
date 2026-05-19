@@ -18,7 +18,19 @@ async function getFolders() {
 }
 
 async function saveFolders(folders) {
-  await chrome.storage.local.set({ folders });
+  try {
+    await chrome.storage.local.set({ folders });
+  } catch (error) {
+    throw new Error(formatStorageError(error));
+  }
+}
+
+function formatStorageError(error) {
+  const message = error && (error.message || String(error)) || '未知错误';
+  const quotaHint = /quota|exceed|storage/i.test(message)
+    ? ' 可能是本地存储空间不足，请先导出备份并清理重复或空内容。'
+    : '';
+  return '保存失败：' + message + quotaHint;
 }
 
 function createId() {
@@ -98,16 +110,20 @@ async function openSaveSelectionWindow(selectionText, tab, geometry) {
     return;
   }
 
-  await chrome.storage.local.set({
-    pendingPromptSave: {
-      id: createId(),
-      title: makePromptTitle(text),
-      text,
-      sourceUrl: tab && tab.url || '',
-      sourceTitle: tab && tab.title || '',
-      timestamp: new Date().toISOString()
-    }
-  });
+  try {
+    await chrome.storage.local.set({
+      pendingPromptSave: {
+        id: createId(),
+        title: makePromptTitle(text),
+        text,
+        sourceUrl: tab && tab.url || '',
+        sourceTitle: tab && tab.title || '',
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    throw new Error(formatStorageError(error));
+  }
 
   const popupOptions = {
     url: chrome.runtime.getURL('save-selection.html'),
@@ -935,11 +951,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.action === 'enableAutoPaste') {
-    chrome.storage.local.set({ autoPaste: true }).then(() => sendResponse({ success: true }));
+    chrome.storage.local.set({ autoPaste: true }).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: formatStorageError(e) }));
     return true;
   }
   if (msg.action === 'disableAutoPaste') {
-    chrome.storage.local.set({ autoPaste: false }).then(() => sendResponse({ success: true }));
+    chrome.storage.local.set({ autoPaste: false }).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: formatStorageError(e) }));
     return true;
   }
   if (msg.action === 'getAutoPaste') {

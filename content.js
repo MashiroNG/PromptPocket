@@ -76,6 +76,30 @@ function removeFloatButton() {
   }
 }
 
+function showContentNotice(message) {
+  const old = document.getElementById('simplest-prompt-notice');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'simplest-prompt-notice';
+  el.textContent = message;
+  el.style.cssText = [
+    'position:fixed',
+    'left:50%',
+    'top:18px',
+    'transform:translateX(-50%)',
+    'z-index:2147483647',
+    'max-width:min(520px,calc(100vw - 32px))',
+    'padding:10px 14px',
+    'border-radius:12px',
+    'background:#202020',
+    'color:#f8f8f8',
+    'box-shadow:0 14px 34px rgba(0,0,0,.24)',
+    'font:13px/1.45 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif'
+  ].join(';');
+  document.documentElement.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
 function ensureFloatButton() {
   if (!hasRuntimeContext()) {
     deactivateExtensionFeatures();
@@ -126,7 +150,10 @@ function ensureFloatButton() {
           deactivateExtensionFeatures();
           return;
         }
-        if (chrome.runtime.lastError || !response || !response.success) return;
+        if (chrome.runtime.lastError || !response || !response.success) {
+          showContentNotice(chrome.runtime.lastError && chrome.runtime.lastError.message || response && response.error || '保存提示词失败');
+          return;
+        }
         removeFloatButton();
       });
     } catch (e) {

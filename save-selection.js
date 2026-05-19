@@ -8,6 +8,14 @@ function showError(message) {
   el.style.display = message ? 'block' : 'none';
 }
 
+function formatStorageError(error) {
+  const message = error && (error.message || String(error)) || '未知错误';
+  const quotaHint = /quota|exceed|storage/i.test(message)
+    ? ' 可能是本地存储空间不足，请先导出备份并清理重复或空内容。'
+    : '';
+  return message + quotaHint;
+}
+
 async function loadDraft() {
   const data = await chrome.storage.local.get({ pendingPromptSave: null, folders: [] });
   const { pendingPromptSave } = data;
@@ -69,7 +77,13 @@ async function addFolder() {
     prompts: []
   };
   folders.push(folder);
-  await chrome.storage.local.set({ folders });
+  try {
+    await chrome.storage.local.set({ folders });
+  } catch (error) {
+    folders = folders.filter(item => item.id !== folder.id);
+    showError('新建文件夹失败：' + formatStorageError(error));
+    return;
+  }
   currentDraft.folderId = folder.id;
   renderFolderOptions();
   closeNewFolderRow();
