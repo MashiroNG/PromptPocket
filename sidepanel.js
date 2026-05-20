@@ -1616,16 +1616,47 @@ function mergeImportedFolders(currentFolders, importedFolders) {
   return { folders: next, addedFolders, addedPrompts, skippedPrompts };
 }
 
-function openImportModal(file) {
+function formatImportFileSize(file) {
+  if (!file || !Number.isFinite(file.size)) return '';
+  if (file.size < 1024) return file.size + ' B';
+  if (file.size < 1024 * 1024) return Math.round(file.size / 1024) + ' KB';
+  return (file.size / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function updateImportDropState(file = null) {
+  const dropZone = document.getElementById('importDropZone');
+  const fileName = document.getElementById('importFileName');
+  if (dropZone) {
+    dropZone.classList.toggle('has-file', !!file);
+    dropZone.classList.remove('drag-over');
+  }
+  if (fileName) {
+    fileName.textContent = file ? `${file.name} · ${formatImportFileSize(file)}` : '也可以点击选择文件';
+  }
+}
+
+function chooseImportFile(file) {
+  if (!file) return;
   pendingImportFile = file;
+  pendingImportedFolders = null;
+  pendingImportError = '';
+  updateImportDropState(file);
+  renderImportPreview({ loading: true });
+  setImportBusy(false);
+  prepareImportPreview(file);
+}
+
+function openImportModal(file = null) {
+  pendingImportFile = null;
   pendingImportedFolders = null;
   pendingImportError = '';
   const mergeOption = document.querySelector('input[name="importMode"][value="merge"]');
   if (mergeOption) mergeOption.checked = true;
-  renderImportPreview({ loading: true });
+  updateImportDropState();
+  renderImportPreview();
   setImportBusy(false);
   document.getElementById('modalImport').classList.remove('hidden');
-  prepareImportPreview(file);
+  if (file) chooseImportFile(file);
 }
 
 function closeImportModal() {
@@ -1635,6 +1666,7 @@ function closeImportModal() {
   pendingImportToken += 1;
   document.getElementById('modalImport').classList.add('hidden');
   document.getElementById('importFile').value = '';
+  updateImportDropState();
   renderImportPreview();
   setImportBusy(false);
 }
@@ -1895,10 +1927,41 @@ document.getElementById('saveSelectionPrompt').addEventListener('click', saveSel
 document.getElementById('deleteSelectionPrompt').addEventListener('click', deleteSelectionPromptFromModal);
 
 document.getElementById('exportBtn').addEventListener('click', exportToJson);
-document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importBtn').addEventListener('click', () => openImportModal());
 document.getElementById('managePinned').addEventListener('click', openPinnedManager);
 document.getElementById('manageQuick').addEventListener('click', openQuickManager);
 document.getElementById('cleanupData').addEventListener('click', openCleanupTool);
+document.getElementById('chooseImportFile').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('importFile').click();
+});
+document.getElementById('importDropZone').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importDropZone').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  document.getElementById('importFile').click();
+});
+document.getElementById('importDropZone').addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+});
+document.getElementById('importDropZone').addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  e.currentTarget.classList.add('drag-over');
+});
+document.getElementById('importDropZone').addEventListener('dragleave', (e) => {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+});
+document.getElementById('importDropZone').addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) chooseImportFile(file);
+});
 document.getElementById('cancelImport').addEventListener('click', closeImportModal);
 document.getElementById('confirmImport').addEventListener('click', confirmImportFromModal);
 document.querySelectorAll('input[name="importMode"]').forEach(input => {
@@ -2021,7 +2084,10 @@ document.getElementById('aiTargetsList').addEventListener('click', handleAiListA
 document.getElementById('selectionPromptsList').addEventListener('click', handleAiListActionClick);
 document.getElementById('importFile').addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
-  if (f) openImportModal(f);
+  if (!f) return;
+  const importModal = document.getElementById('modalImport');
+  if (importModal && importModal.classList.contains('hidden')) openImportModal(f);
+  else chooseImportFile(f);
 });
 
 document.getElementById('autoPaste').addEventListener('change', (e) => {

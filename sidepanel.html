@@ -166,7 +166,15 @@
   <div id="modalImport" class="modal hidden">
     <div class="modal-inner import-modal">
       <h3>导入提示词</h3>
-      <div class="prompt-modal-subtitle">选择导入方式。确认后会先自动下载当前数据备份。</div>
+      <div class="prompt-modal-subtitle">拖入备份 JSON，预览确认后再导入。</div>
+      <div class="import-drop-zone" id="importDropZone" tabindex="0" role="button" aria-label="拖拽或选择 JSON 文件导入">
+        <div class="import-drop-icon" aria-hidden="true">+</div>
+        <div class="import-drop-copy">
+          <strong>拖拽 JSON 文件到这里</strong>
+          <span id="importFileName">也可以点击选择文件</span>
+        </div>
+        <button type="button" class="btn ghost import-pick-btn" id="chooseImportFile">选择文件</button>
+      </div>
       <div class="import-options">
         <label class="import-option">
           <input type="radio" name="importMode" value="merge" checked />
