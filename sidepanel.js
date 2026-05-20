@@ -1743,11 +1743,13 @@ function handleAiListActionClick(e) {
 function setActiveTab(tab) {
   const promptsTab = document.getElementById('tabPrompts');
   const aiTab = document.getElementById('tabAi');
+  const mainTabs = document.getElementById('mainTabs');
   const btnPrompts = document.getElementById('tabPromptsBtn');
   const btnAi = document.getElementById('tabAiBtn');
   const showPrompts = tab === 'prompts';
   promptsTab.classList.toggle('hidden', !showPrompts);
   aiTab.classList.toggle('hidden', showPrompts);
+  if (mainTabs) mainTabs.classList.toggle('ai-active', !showPrompts);
   btnPrompts.classList.toggle('active', showPrompts);
   btnAi.classList.toggle('active', !showPrompts);
 }

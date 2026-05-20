@@ -2,7 +2,7 @@
 
 PromptPocket 是一个为 ChatGPT 网页版优化的本地提示词管理 Chrome 插件。它可以把网页里看到的好提示词快速保存下来，并在需要时通过侧边栏、右键菜单或 ChatGPT 输入框旁的快捷浮窗直接复用。
 
-当前版本：`1.0.4`
+当前版本：`1.0.5`
 
 ## 原仓库
 
@@ -110,7 +110,7 @@ PromptPocket 是一个为 ChatGPT 网页版优化的本地提示词管理 Chrome
 发布前先确认 `manifest.json` 和 README 的版本号已经更新，然后在项目根目录运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 1.0.4 -ReleaseNotes "修复 ChatGPT 非聊天页面误显示快捷提示词按钮的问题。"
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 1.0.5 -ReleaseNotes "优化顶部搜索栏版面，并修复 ChatGPT 套餐页残留快捷提示词按钮的问题。"
 ```
 
 脚本会依次完成版本校验、JavaScript 语法检查、生成 `PromptPocket-v版本号.zip`、创建并推送 Git tag，以及在 GitHub 上创建 Release 并上传 zip。脚本会使用本机 Git Credential Manager 中已经登录的 GitHub 凭据。

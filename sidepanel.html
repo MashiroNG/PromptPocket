@@ -13,10 +13,15 @@
       <span class="theme-thumb" aria-hidden="true"></span>
     </button>
   </div>
-  <div class="tabs">
-    <button type="button" class="tab-btn active" id="tabPromptsBtn" data-tab="prompts">提示词</button>
-    <button type="button" class="tab-btn" id="tabAiBtn" data-tab="ai">选中文本处理</button>
-    <input type="search" class="tab-search-input" id="promptSearch" placeholder="搜索提示词" autocomplete="off" />
+  <div class="tabs" id="mainTabs">
+    <div class="tab-nav" aria-label="功能切换">
+      <button type="button" class="tab-btn active" id="tabPromptsBtn" data-tab="prompts">提示词</button>
+      <button type="button" class="tab-btn" id="tabAiBtn" data-tab="ai">选中文本处理</button>
+    </div>
+    <label class="tab-search">
+      <span class="tab-search-icon" aria-hidden="true">⌕</span>
+      <input type="search" class="tab-search-input" id="promptSearch" placeholder="搜索标题、内容或文件夹" autocomplete="off" />
+    </label>
     <button type="button" class="tab-tool-btn" id="cleanupData">清理数据</button>
   </div>
 

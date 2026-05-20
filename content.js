@@ -13,6 +13,7 @@ let quickComposerResizeObserver = null;
 let quickObservedComposerFrame = null;
 let quickPositionFrame = null;
 let quickRefreshToken = 0;
+let quickLastLocationHref = location.href;
 
 function hasRuntimeContext() {
   if (!extensionFeaturesActive) return false;
@@ -231,8 +232,24 @@ function isChatGptPage() {
   return /(^|\.)chatgpt\.com$/i.test(location.hostname || '') || /(^|\.)chat\.openai\.com$/i.test(location.hostname || '');
 }
 
+function pageTextMatches(selectors, pattern) {
+  const nodes = document.querySelectorAll(selectors);
+  for (const node of nodes) {
+    const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (text && pattern.test(text)) return true;
+  }
+  return false;
+}
+
+function isChatGptPlanPage() {
+  if (!isChatGptPage()) return false;
+  if (/\/(?:pricing|plans|upgrade|settings\/subscription)/i.test(location.pathname || '')) return true;
+  return pageTextMatches('h1,h2,h3,[role="heading"],button,a', /升级套餐|升级计划|升级至\s*Pro|添加\s*Business\s*工作空间|Upgrade plan|Upgrade to Pro|Add Business workspace/i);
+}
+
 function isChatGptConversationPage() {
   if (!isChatGptPage()) return false;
+  if (isChatGptPlanPage()) return false;
   const path = location.pathname || '/';
   if (/^\/(?:c|g|gpts|project|projects)\//i.test(path)) return true;
   if (path === '/' || path === '') return true;
@@ -376,11 +393,43 @@ function removeQuickPromptUi() {
   const panel = document.getElementById(QUICK_PANEL_ID);
   if (launcher) launcher.remove();
   if (panel) panel.remove();
+  quickActiveEditor = null;
+  quickComposerSelection = null;
   if (quickComposerResizeObserver) quickComposerResizeObserver.disconnect();
   quickComposerResizeObserver = null;
   quickObservedComposerFrame = null;
   if (quickPositionFrame) cancelAnimationFrame(quickPositionFrame);
   quickPositionFrame = null;
+}
+
+function syncQuickPromptPageState() {
+  if (!extensionFeaturesActive || !isChatGptPage()) return;
+  if (quickLastLocationHref !== location.href) {
+    quickLastLocationHref = location.href;
+    removeQuickPromptUi();
+  }
+  if (!isChatGptConversationPage()) {
+    removeQuickPromptUi();
+  }
+}
+
+function watchChatGptNavigation() {
+  if (!isChatGptPage()) return;
+  const notify = () => setTimeout(syncQuickPromptPageState, 80);
+  window.addEventListener('popstate', notify);
+  window.addEventListener('hashchange', notify);
+  ['pushState', 'replaceState'].forEach(name => {
+    const original = history[name];
+    if (typeof original !== 'function' || original.__promptPocketPatched) return;
+    const patched = function(...args) {
+      const result = original.apply(this, args);
+      notify();
+      return result;
+    };
+    patched.__promptPocketPatched = true;
+    history[name] = patched;
+  });
+  setInterval(syncQuickPromptPageState, 1000);
 }
 
 function ensureQuickAnimationStyles() {
@@ -818,7 +867,8 @@ function insertPromptIntoComposer(text) {
 }
 
 document.addEventListener('focusin', event => {
-  if (!extensionFeaturesActive || !isChatGptPage()) return;
+  syncQuickPromptPageState();
+  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
   const launcher = document.getElementById(QUICK_LAUNCHER_ID);
   const panel = document.getElementById(QUICK_PANEL_ID);
   if ((launcher && launcher.contains(event.target)) || (panel && panel.contains(event.target))) return;
@@ -832,7 +882,8 @@ document.addEventListener('focusin', event => {
 }, true);
 
 document.addEventListener('input', event => {
-  if (!extensionFeaturesActive || !isChatGptPage()) return;
+  syncQuickPromptPageState();
+  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
   const editor = findEditableFromTarget(event.target);
   if (looksLikeChatComposer(editor)) {
     quickActiveEditor = editor;
@@ -841,7 +892,8 @@ document.addEventListener('input', event => {
 }, true);
 
 document.addEventListener('click', event => {
-  if (!extensionFeaturesActive || !isChatGptPage()) return;
+  syncQuickPromptPageState();
+  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
   const launcher = document.getElementById(QUICK_LAUNCHER_ID);
   const panel = document.getElementById(QUICK_PANEL_ID);
   if ((launcher && launcher.contains(event.target)) || (panel && panel.contains(event.target))) return;
@@ -854,6 +906,8 @@ document.addEventListener('click', event => {
   if (editor) removeQuickPromptUi();
   if (panel) animateQuickPanelOut(panel);
 }, true);
+
+watchChatGptNavigation();
 
 function isVisible(el) {
   if (!el) return false;
