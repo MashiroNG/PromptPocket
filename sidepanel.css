@@ -394,7 +394,7 @@ body {
 .control-row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(176px, 1.32fr) auto minmax(120px, 0.68fr);
+  grid-template-columns: minmax(138px, 0.82fr) auto minmax(150px, 1.18fr);
   gap: 6px;
   align-items: center;
 }
@@ -615,23 +615,26 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.11);
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
   align-items: center;
   color: var(--text-muted);
   animation: riseIn 180ms cubic-bezier(.2,.85,.25,1) both;
 }
 
 .quick-scope-settings.with-folder {
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  grid-template-columns: auto minmax(0, 0.88fr) minmax(0, 1.12fr);
 }
 .quick-scope-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
   white-space: nowrap;
+  font-size: 11px;
+  font-weight: 850;
+  color: var(--text-secondary);
 }
 .quick-scope-picker {
   position: relative;
