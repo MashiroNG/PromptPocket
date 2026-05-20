@@ -231,6 +231,14 @@ function isChatGptPage() {
   return /(^|\.)chatgpt\.com$/i.test(location.hostname || '') || /(^|\.)chat\.openai\.com$/i.test(location.hostname || '');
 }
 
+function isChatGptConversationPage() {
+  if (!isChatGptPage()) return false;
+  const path = location.pathname || '/';
+  if (/^\/(?:c|g|gpts|project|projects)\//i.test(path)) return true;
+  if (path === '/' || path === '') return true;
+  return false;
+}
+
 function isTextInput(el) {
   if (!el || el.tagName !== 'INPUT') return false;
   const type = (el.type || 'text').toLowerCase();
@@ -248,8 +256,24 @@ function findEditableFromTarget(target) {
   return isEditable(editable) ? editable : null;
 }
 
+function isLikelyComposerForm(form) {
+  if (!form || !form.querySelector) return false;
+  const editable = form.querySelector('textarea, [contenteditable="true"]');
+  if (!editable) return false;
+  const sendButton = Array.from(form.querySelectorAll('button')).some(button => {
+    const text = [
+      button.getAttribute('aria-label') || '',
+      button.getAttribute('title') || '',
+      button.getAttribute('data-testid') || '',
+      button.textContent || ''
+    ].join(' ').toLowerCase();
+    return /send|submit|发送|提交|send-button|composer-submit/.test(text);
+  });
+  return sendButton;
+}
+
 function looksLikeChatComposer(el) {
-  if (!isChatGptPage() || !isEditable(el)) return false;
+  if (!isChatGptConversationPage() || !isEditable(el)) return false;
   const blocker = el.closest && el.closest('article, [data-message-author-role], [data-testid^="conversation-turn"], [role="dialog"]');
   const explicitComposerContainer = el.closest && el.closest('[data-testid="composer-input-container"]');
   if (blocker && !explicitComposerContainer) return false;
@@ -260,7 +284,7 @@ function looksLikeChatComposer(el) {
   const container = el.closest && el.closest('form');
   if (!container || container.closest('article, [data-message-author-role], [data-testid^="conversation-turn"], [role="dialog"]')) return false;
   const rect = el.getBoundingClientRect();
-  return !!container && rect.width > 180 && rect.height > 20;
+  return rect.width > 180 && rect.height > 20 && isLikelyComposerForm(container);
 }
 
 function findCurrentChatComposer() {

@@ -2,6 +2,7 @@ param(
   [string]$Version,
   [string]$Repo = 'MashiroNG/PromptPocket',
   [string]$Branch = 'main',
+  [string]$ReleaseNotes,
   [switch]$SkipPush,
   [switch]$SkipRelease
 )
@@ -144,13 +145,17 @@ $headers = @{
   'X-GitHub-Api-Version' = '2022-11-28'
   'User-Agent' = 'PromptPocket-release-script'
 }
+$changeText = if ($ReleaseNotes) {
+  $ReleaseNotes
+} else {
+  '- Update PromptPocket release package.'
+}
+
 $releaseBody = @"
 PromptPocket v$Version.
 
 Changes:
-- Add scripts/release.ps1 release script
-- Validate manifest version and JavaScript syntax automatically
-- Create zip, Git tag, push, and GitHub Release automatically
+$changeText
 
 Install: download $zipName, unzip it, then choose Load unpacked on the Chrome extensions page.
 "@
