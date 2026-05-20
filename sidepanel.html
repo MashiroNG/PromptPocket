@@ -16,6 +16,7 @@
   <div class="tabs">
     <button type="button" class="tab-btn active" id="tabPromptsBtn" data-tab="prompts">提示词</button>
     <button type="button" class="tab-btn" id="tabAiBtn" data-tab="ai">选中文本处理</button>
+    <input type="search" class="tab-search-input" id="promptSearch" placeholder="搜索提示词" autocomplete="off" />
     <button type="button" class="tab-tool-btn" id="cleanupData">清理数据</button>
   </div>
 
@@ -28,7 +29,6 @@
           <span class="setting-desc">关闭后只复制，需要手动 Ctrl+V</span>
         </span>
       </label>
-      <input type="search" class="search-input" id="promptSearch" placeholder="搜索提示词" autocomplete="off" />
       <div class="search-filters">
         <div class="folder-filter" id="promptFolderFilter">
           <span class="filter-label">文件夹</span>

@@ -173,7 +173,29 @@ body {
   flex-shrink: 0;
   align-items: center;
 }
+.tab-search-input {
+  flex: 1 1 88px;
+  min-width: 74px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+.tab-search-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--focus);
+}
+.tab-search-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 600;
+}
 .tab-btn {
+  flex: 0 0 auto;
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid transparent;
@@ -191,7 +213,7 @@ body {
   border-color: var(--accent-border);
 }
 .tab-tool-btn {
-  margin-left: auto;
+  flex: 0 0 auto;
   min-height: 32px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
@@ -1634,6 +1656,7 @@ body.theme-light .prompt-actions .btn.primary-create:hover {
 body.theme-light .tab-btn.active,
 body.theme-light .setting-toggle,
 body.theme-light .search-input,
+body.theme-light .tab-search-input,
 body.theme-light .folder-filter,
 body.theme-light .pill-toggle {
   background: #ffffff;
