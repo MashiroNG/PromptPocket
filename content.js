@@ -11,6 +11,7 @@ let quickPromptItems = [];
 let quickComposerSelection = null;
 let quickComposerResizeObserver = null;
 let quickObservedComposerFrame = null;
+let quickComposerMutationObserver = null;
 let quickPositionFrame = null;
 let quickRefreshToken = 0;
 let quickLastLocationHref = location.href;
@@ -244,7 +245,7 @@ function pageTextMatches(selectors, pattern) {
 function isChatGptPlanPage() {
   if (!isChatGptPage()) return false;
   if (/\/(?:pricing|plans|upgrade|settings\/subscription)/i.test(location.pathname || '')) return true;
-  return pageTextMatches('h1,h2,h3,[role="heading"],button,a', /升级套餐|升级计划|升级至\s*Pro|添加\s*Business\s*工作空间|Upgrade plan|Upgrade to Pro|Add Business workspace/i);
+  return pageTextMatches('main h1, main h2, main h3, [role="main"] h1, [role="main"] h2, [role="main"] h3, h1, h2', /升级套餐|升级至\s*Pro|Upgrade plan|Upgrade to Pro|Plans/i);
 }
 
 function isChatGptConversationPage() {
@@ -319,6 +320,24 @@ function findCurrentChatComposer() {
     if (looksLikeChatComposer(el)) return el;
   }
   return null;
+}
+
+function ensureQuickLauncherForCurrentComposer() {
+  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
+  const launcher = document.getElementById(QUICK_LAUNCHER_ID);
+  const panel = document.getElementById(QUICK_PANEL_ID);
+  if ((launcher && document.activeElement && launcher.contains(document.activeElement)) ||
+      (panel && document.activeElement && panel.contains(document.activeElement))) {
+    return;
+  }
+
+  const editor = findCurrentChatComposer();
+  if (!editor) return;
+  const shouldShow = document.activeElement === editor ||
+    (editor.contains && editor.contains(document.activeElement)) ||
+    quickActiveEditor === editor ||
+    !launcher;
+  if (shouldShow) scheduleQuickLauncherPosition(editor);
 }
 
 function getComposerFrame(editor) {
@@ -415,7 +434,10 @@ function syncQuickPromptPageState() {
 
 function watchChatGptNavigation() {
   if (!isChatGptPage()) return;
-  const notify = () => setTimeout(syncQuickPromptPageState, 80);
+  const notify = () => setTimeout(() => {
+    syncQuickPromptPageState();
+    ensureQuickLauncherForCurrentComposer();
+  }, 120);
   window.addEventListener('popstate', notify);
   window.addEventListener('hashchange', notify);
   ['pushState', 'replaceState'].forEach(name => {
@@ -429,7 +451,24 @@ function watchChatGptNavigation() {
     patched.__promptPocketPatched = true;
     history[name] = patched;
   });
-  setInterval(syncQuickPromptPageState, 1000);
+  setInterval(() => {
+    syncQuickPromptPageState();
+    ensureQuickLauncherForCurrentComposer();
+  }, 1000);
+  if (typeof MutationObserver !== 'undefined') {
+    let mutationTimer = null;
+    quickComposerMutationObserver = new MutationObserver(() => {
+      if (mutationTimer) clearTimeout(mutationTimer);
+      mutationTimer = setTimeout(() => {
+        syncQuickPromptPageState();
+        ensureQuickLauncherForCurrentComposer();
+      }, 120);
+    });
+    quickComposerMutationObserver.observe(document.body || document.documentElement, {
+      childList: true,
+      subtree: true
+    });
+  }
 }
 
 function ensureQuickAnimationStyles() {
