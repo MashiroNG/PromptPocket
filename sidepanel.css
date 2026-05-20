@@ -394,7 +394,7 @@ body {
 .control-row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(170px, 1.36fr) auto minmax(104px, 0.54fr);
+  grid-template-columns: minmax(176px, 1.32fr) auto minmax(120px, 0.68fr);
   gap: 6px;
   align-items: center;
 }
@@ -518,8 +518,8 @@ body {
   height: 32px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 9px;
+  gap: 5px;
+  padding: 0 8px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.045);
@@ -610,27 +610,28 @@ body {
   width: 100%;
   min-width: 0;
   min-height: 32px;
-  padding: 0 7px;
+  padding: 0 6px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.11);
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
   align-items: center;
   color: var(--text-muted);
   animation: riseIn 180ms cubic-bezier(.2,.85,.25,1) both;
 }
 
 .quick-scope-settings.with-folder {
-  grid-template-columns: auto minmax(0, 0.92fr) minmax(0, 1.08fr);
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
 }
 .quick-scope-label {
-  padding: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
-  font-size: 11px;
-  font-weight: 850;
-  color: var(--text-secondary);
 }
 .quick-scope-picker {
   position: relative;
