@@ -394,18 +394,15 @@ body {
 .control-row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(150px, 1fr) auto minmax(132px, 0.72fr);
   gap: 7px;
   align-items: center;
 }
 .search-filters {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 7px;
-  align-items: center;
+  display: contents;
 }
 .folder-filter {
+  grid-column: 1;
   position: relative;
   min-width: 0;
   display: grid;
@@ -517,6 +514,7 @@ body {
   color: #414141;
 }
 .pill-toggle {
+  grid-column: 2;
   height: 32px;
   display: inline-flex;
   align-items: center;
@@ -607,6 +605,8 @@ body {
   outline-offset: 1px;
 }
 .quick-scope-settings {
+  grid-column: 3;
+  justify-self: end;
   width: 100%;
   min-height: 32px;
   padding: 0 8px;
@@ -619,6 +619,21 @@ body {
   align-items: center;
   color: var(--text-muted);
   animation: riseIn 180ms cubic-bezier(.2,.85,.25,1) both;
+}
+
+@media (max-width: 390px) {
+  .control-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .folder-filter {
+    grid-column: 1;
+  }
+  .pill-toggle {
+    grid-column: 2;
+  }
+  .quick-scope-settings {
+    grid-column: 1 / -1;
+  }
 }
 .quick-scope-settings.with-folder {
   grid-template-columns: auto minmax(0, 0.9fr) minmax(0, 1.1fr);
