@@ -394,7 +394,10 @@ body {
 .control-row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(126px, 0.95fr) 86px minmax(150px, 1.05fr);
+  grid-template-columns: minmax(0, 1fr) 86px;
+  grid-template-areas:
+    "folder pinned"
+    "quick quick";
   gap: 8px;
   align-items: center;
 }
@@ -402,7 +405,7 @@ body {
   display: contents;
 }
 .folder-filter {
-  grid-column: 1;
+  grid-area: folder;
   position: relative;
   min-width: 0;
   display: grid;
@@ -514,7 +517,7 @@ body {
   color: #414141;
 }
 .pill-toggle {
-  grid-column: 2;
+  grid-area: pinned;
   width: 100%;
   height: 32px;
   display: inline-flex;
@@ -607,7 +610,7 @@ body {
   outline-offset: 1px;
 }
 .quick-scope-settings {
-  grid-column: 3;
+  grid-area: quick;
   justify-self: end;
   width: 100%;
   min-width: 0;
@@ -618,22 +621,22 @@ body {
   background: rgba(0, 0, 0, 0.11);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   color: var(--text-muted);
   animation: riseIn 180ms cubic-bezier(.2,.85,.25,1) both;
 }
 
 .quick-scope-settings.with-folder {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 0.95fr) minmax(0, 1.05fr);
   align-content: center;
 }
 .quick-scope-settings.with-folder .quick-scope-label {
-  align-self: start;
-  padding-top: 6px;
+  align-self: center;
+  padding-top: 0;
 }
 .quick-scope-settings.with-folder .quick-scope-picker {
-  grid-column: 2;
+  grid-column: auto;
 }
 .quick-scope-label {
   position: static;
@@ -665,7 +668,7 @@ body {
   align-items: center;
   gap: 5px;
   text-align: left;
-  font: 800 11.5px/1 "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  font: 800 12px/1 "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
   transition: border-color 150ms ease, background 150ms ease, transform 150ms ease, box-shadow 150ms ease;
 }
 .quick-scope-trigger:hover {
