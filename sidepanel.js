@@ -20,6 +20,38 @@ let sidepanelTheme = 'dark';
 const DEFAULT_FOLDER_NAME = '收件箱';
 const QUICK_SCOPE_MODES = new Set(['all', 'pinned', 'folder']);
 
+async function closeSidePanelFromShortcut() {
+  if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.close === 'function') {
+    let closeOptions = null;
+    if (chrome.windows && typeof chrome.windows.getCurrent === 'function') {
+      try {
+        const currentWindow = await chrome.windows.getCurrent();
+        if (Number.isInteger(currentWindow && currentWindow.id)) {
+          closeOptions = { windowId: currentWindow.id };
+        }
+      } catch (error) {
+        closeOptions = null;
+      }
+    }
+    if (!closeOptions && chrome.windows && Number.isInteger(chrome.windows.WINDOW_ID_CURRENT)) {
+      closeOptions = { windowId: chrome.windows.WINDOW_ID_CURRENT };
+    }
+    if (closeOptions) {
+      try {
+        await chrome.sidePanel.close(closeOptions);
+        return;
+      } catch (error) {
+        // Older or non-Chrome environments can fail here; fall back to window.close().
+      }
+    }
+  }
+  try {
+    window.close();
+  } catch (error) {
+    // No further fallback is available.
+  }
+}
+
 async function loadFolders() {
   const { folders: f } = await chrome.storage.local.get({ folders: [] });
   folders = Array.isArray(f) ? f : [];
@@ -1978,10 +2010,12 @@ document.addEventListener('click', (e) => {
   if (root && !root.contains(e.target)) closeQuickScopeMenus();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
+  if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+  e.preventDefault();
   closePromptFolderFilter();
   closeQuickScopeMenus();
   closePromptMoreMenus();
+  closeSidePanelFromShortcut();
 });
 document.getElementById('aiTargetsList').addEventListener('click', handleAiListActionClick);
 document.getElementById('selectionPromptsList').addEventListener('click', handleAiListActionClick);
