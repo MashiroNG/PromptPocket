@@ -30,44 +30,46 @@
       <label class="setting-toggle">
         <input type="checkbox" id="autoPaste" />
         <span class="setting-copy">
-          <span class="setting-title">直接粘贴到输入框</span>
-          <span class="setting-desc">关闭后只复制，需要手动 Ctrl+V</span>
+          <span class="setting-title">直接粘贴</span>
+          <span class="setting-desc">关闭后只复制，手动 Ctrl+V</span>
         </span>
       </label>
-      <div class="search-filters">
-        <div class="folder-filter" id="promptFolderFilter">
-          <span class="filter-label">文件夹</span>
-          <button type="button" class="filter-select" id="promptFolderFilterButton" aria-expanded="false">
-            <span class="value" data-folder-filter-label>全部文件夹</span>
-            <span class="chevron" aria-hidden="true">⌄</span>
-          </button>
-          <div class="filter-menu hidden" id="promptFolderFilterMenu"></div>
+      <div class="control-row">
+        <div class="search-filters">
+          <div class="folder-filter" id="promptFolderFilter">
+            <span class="filter-label">文件夹</span>
+            <button type="button" class="filter-select" id="promptFolderFilterButton" aria-expanded="false">
+              <span class="value" data-folder-filter-label>全部文件夹</span>
+              <span class="chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div class="filter-menu hidden" id="promptFolderFilterMenu"></div>
+          </div>
+          <label class="pill-toggle">
+            <input type="checkbox" id="promptPinnedOnly" />
+            <span>只看置顶</span>
+          </label>
         </div>
-        <label class="pill-toggle">
-          <input type="checkbox" id="promptPinnedOnly" />
-          <span>只看置顶</span>
-        </label>
+        <div class="quick-scope-settings" aria-label="快捷提示词范围设置">
+          <span class="quick-scope-label">快捷</span>
+          <div class="quick-scope-picker" id="quickScopeModePicker">
+            <button type="button" class="quick-scope-trigger" id="quickScopeModeButton" aria-expanded="false">
+              <span class="value" id="quickScopeModeLabel">全部提示词</span>
+              <span class="chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div class="quick-scope-menu hidden" id="quickScopeModeMenu"></div>
+          </div>
+          <div class="quick-scope-picker hidden" id="quickScopeFolderPicker">
+            <button type="button" class="quick-scope-trigger" id="quickScopeFolderButton" aria-expanded="false">
+              <span class="value" id="quickScopeFolderLabel">选择文件夹</span>
+              <span class="chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div class="quick-scope-menu hidden" id="quickScopeFolderMenu"></div>
+          </div>
+        </div>
       </div>
       <div class="search-status hidden" id="searchStatus" aria-live="polite">
         <span class="search-status-text" id="searchStatusText"></span>
         <button type="button" class="clear-filter-btn" id="clearSearchFilters">清空筛选</button>
-      </div>
-      <div class="quick-scope-settings" aria-label="快捷提示词范围设置">
-        <span class="quick-scope-label">快捷范围</span>
-        <div class="quick-scope-picker" id="quickScopeModePicker">
-          <button type="button" class="quick-scope-trigger" id="quickScopeModeButton" aria-expanded="false">
-            <span class="value" id="quickScopeModeLabel">全部提示词</span>
-            <span class="chevron" aria-hidden="true">⌄</span>
-          </button>
-          <div class="quick-scope-menu hidden" id="quickScopeModeMenu"></div>
-        </div>
-        <div class="quick-scope-picker hidden" id="quickScopeFolderPicker">
-          <button type="button" class="quick-scope-trigger" id="quickScopeFolderButton" aria-expanded="false">
-            <span class="value" id="quickScopeFolderLabel">选择文件夹</span>
-            <span class="chevron" aria-hidden="true">⌄</span>
-          </button>
-          <div class="quick-scope-menu hidden" id="quickScopeFolderMenu"></div>
-        </div>
       </div>
       <div class="toolbar-btns prompt-actions">
         <button type="button" class="btn primary-create" id="addPrompt">+ 提示词</button>
