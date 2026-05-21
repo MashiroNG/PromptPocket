@@ -233,6 +233,14 @@ function isChatGptPage() {
   return /(^|\.)chatgpt\.com$/i.test(location.hostname || '') || /(^|\.)chat\.openai\.com$/i.test(location.hostname || '');
 }
 
+function isGeminiPage() {
+  return /(^|\.)gemini\.google\.com$/i.test(location.hostname || '');
+}
+
+function isQuickPromptPage() {
+  return isChatGptPage() || isGeminiPage();
+}
+
 function pageTextMatches(selectors, pattern) {
   const nodes = document.querySelectorAll(selectors);
   for (const node of nodes) {
@@ -257,6 +265,10 @@ function isChatGptConversationPage() {
   return false;
 }
 
+function isQuickPromptConversationPage() {
+  return isChatGptConversationPage() || isGeminiPage();
+}
+
 function isTextInput(el) {
   if (!el || el.tagName !== 'INPUT') return false;
   const type = (el.type || 'text').toLowerCase();
@@ -270,7 +282,12 @@ function isEditable(el) {
 function findEditableFromTarget(target) {
   const start = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
   if (!start || !start.closest) return null;
-  const editable = start.closest('#prompt-textarea, [data-testid="composer-input"], textarea, input, [contenteditable="true"]');
+  const geminiRichTextarea = start.closest('rich-textarea');
+  if (geminiRichTextarea) {
+    const geminiEditor = geminiRichTextarea.querySelector('.ql-editor[contenteditable="true"], .ql-editor, [contenteditable="true"]');
+    if (isEditable(geminiEditor)) return geminiEditor;
+  }
+  const editable = start.closest('#prompt-textarea, [data-testid="composer-input"], textarea, input, .ql-editor, [contenteditable="true"]');
   return isEditable(editable) ? editable : null;
 }
 
@@ -305,6 +322,20 @@ function looksLikeChatComposer(el) {
   return rect.width > 180 && rect.height > 20 && isLikelyComposerForm(container);
 }
 
+function looksLikeGeminiComposer(el) {
+  if (!isGeminiPage() || !isEditable(el) || !isVisible(el)) return false;
+  if (el.closest && el.closest('[role="dialog"], message-content, .model-response, .response-container')) return false;
+  const richTextarea = el.closest && el.closest('rich-textarea');
+  if (richTextarea && richTextarea.contains(el)) return true;
+  if (el.matches && el.matches('.ql-editor[contenteditable="true"], .ql-editor')) return true;
+  const rect = el.getBoundingClientRect();
+  return !!(el.isContentEditable && rect.width > 180 && rect.height > 20 && el.getAttribute('role') === 'textbox');
+}
+
+function looksLikeQuickComposer(el) {
+  return looksLikeChatComposer(el) || looksLikeGeminiComposer(el);
+}
+
 function findCurrentChatComposer() {
   const active = document.activeElement;
   if (looksLikeChatComposer(active)) return active;
@@ -322,8 +353,19 @@ function findCurrentChatComposer() {
   return null;
 }
 
+function findCurrentGeminiComposer() {
+  const active = document.activeElement;
+  if (looksLikeGeminiComposer(active)) return active;
+  const editor = findGeminiEditor();
+  return looksLikeGeminiComposer(editor) ? editor : null;
+}
+
+function findCurrentQuickComposer() {
+  return findCurrentChatComposer() || findCurrentGeminiComposer();
+}
+
 function ensureQuickLauncherForCurrentComposer() {
-  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
+  if (!extensionFeaturesActive || !isQuickPromptConversationPage()) return;
   const launcher = document.getElementById(QUICK_LAUNCHER_ID);
   const panel = document.getElementById(QUICK_PANEL_ID);
   if ((launcher && document.activeElement && launcher.contains(document.activeElement)) ||
@@ -331,7 +373,7 @@ function ensureQuickLauncherForCurrentComposer() {
     return;
   }
 
-  const editor = findCurrentChatComposer();
+  const editor = findCurrentQuickComposer();
   if (!editor) return;
   const shouldShow = document.activeElement === editor ||
     (editor.contains && editor.contains(document.activeElement)) ||
@@ -341,7 +383,24 @@ function ensureQuickLauncherForCurrentComposer() {
 }
 
 function getComposerFrame(editor) {
-  return editor && editor.closest && (editor.closest('[data-testid="composer-input-container"], form') || editor);
+  if (!editor || !editor.closest) return editor;
+  if (looksLikeGeminiComposer(editor)) return getGeminiComposerFrame(editor);
+  return editor.closest('[data-testid="composer-input-container"], form') || editor;
+}
+
+function getGeminiComposerFrame(editor) {
+  const editorRect = editor.getBoundingClientRect();
+  let node = (editor.closest && editor.closest('rich-textarea')) || editor;
+  for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+    const rect = node.getBoundingClientRect();
+    if (rect.width > Math.max(320, editorRect.width + 80) &&
+        rect.height >= 42 &&
+        rect.height <= 190 &&
+        rect.bottom > window.innerHeight * 0.45) {
+      return node;
+    }
+  }
+  return (editor.closest && editor.closest('rich-textarea')) || editor;
 }
 
 function getComposerRect(editor) {
@@ -370,7 +429,7 @@ function getComposerActionCenterY(editor) {
 
 function scheduleQuickLauncherPosition(editor) {
   const targetEditor = editor || quickActiveEditor;
-  if (!targetEditor || !looksLikeChatComposer(targetEditor)) return;
+  if (!targetEditor || !looksLikeQuickComposer(targetEditor)) return;
   if (quickPositionFrame) cancelAnimationFrame(quickPositionFrame);
   quickPositionFrame = requestAnimationFrame(() => {
     quickPositionFrame = null;
@@ -422,18 +481,18 @@ function removeQuickPromptUi() {
 }
 
 function syncQuickPromptPageState() {
-  if (!extensionFeaturesActive || !isChatGptPage()) return;
+  if (!extensionFeaturesActive || !isQuickPromptPage()) return;
   if (quickLastLocationHref !== location.href) {
     quickLastLocationHref = location.href;
     removeQuickPromptUi();
   }
-  if (!isChatGptConversationPage()) {
+  if (!isQuickPromptConversationPage()) {
     removeQuickPromptUi();
   }
 }
 
 function watchChatGptNavigation() {
-  if (!isChatGptPage()) return;
+  if (!isQuickPromptPage()) return;
   const notify = () => setTimeout(() => {
     syncQuickPromptPageState();
     ensureQuickLauncherForCurrentComposer();
@@ -612,7 +671,7 @@ function ensureQuickLauncher() {
 }
 
 function positionQuickLauncher(editor) {
-  if (!hasRuntimeContext() || !looksLikeChatComposer(editor)) {
+  if (!hasRuntimeContext() || !looksLikeQuickComposer(editor)) {
     removeQuickPromptUi();
     return;
   }
@@ -879,7 +938,7 @@ function setNativeValue(el, next) {
 }
 
 function insertPromptIntoComposer(text) {
-  const editor = looksLikeChatComposer(quickActiveEditor) ? quickActiveEditor : findCurrentChatComposer();
+  const editor = looksLikeQuickComposer(quickActiveEditor) ? quickActiveEditor : findCurrentQuickComposer();
   if (!editor) return;
   editor.focus();
 
@@ -900,6 +959,16 @@ function insertPromptIntoComposer(text) {
   } catch (e) {}
 
   try {
+    if (looksLikeGeminiComposer(editor)) {
+      const current = editor.textContent || '';
+      editor.innerHTML = '';
+      const p = document.createElement('p');
+      p.textContent = current + text;
+      editor.appendChild(p);
+      setSelectionToEnd(editor);
+      dispatchEvents(editor, text);
+      return;
+    }
     editor.textContent = (editor.textContent || '') + text;
     editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
   } catch (e) {}
@@ -907,13 +976,13 @@ function insertPromptIntoComposer(text) {
 
 document.addEventListener('focusin', event => {
   syncQuickPromptPageState();
-  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
+  if (!extensionFeaturesActive || !isQuickPromptConversationPage()) return;
   const launcher = document.getElementById(QUICK_LAUNCHER_ID);
   const panel = document.getElementById(QUICK_PANEL_ID);
   if ((launcher && launcher.contains(event.target)) || (panel && panel.contains(event.target))) return;
 
   const editor = findEditableFromTarget(event.target);
-  if (looksLikeChatComposer(editor)) {
+  if (looksLikeQuickComposer(editor)) {
     setTimeout(() => positionQuickLauncher(editor), 60);
     return;
   }
@@ -922,9 +991,9 @@ document.addEventListener('focusin', event => {
 
 document.addEventListener('input', event => {
   syncQuickPromptPageState();
-  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
+  if (!extensionFeaturesActive || !isQuickPromptConversationPage()) return;
   const editor = findEditableFromTarget(event.target);
-  if (looksLikeChatComposer(editor)) {
+  if (looksLikeQuickComposer(editor)) {
     quickActiveEditor = editor;
     scheduleQuickLauncherPosition(editor);
   }
@@ -932,13 +1001,13 @@ document.addEventListener('input', event => {
 
 document.addEventListener('click', event => {
   syncQuickPromptPageState();
-  if (!extensionFeaturesActive || !isChatGptConversationPage()) return;
+  if (!extensionFeaturesActive || !isQuickPromptConversationPage()) return;
   const launcher = document.getElementById(QUICK_LAUNCHER_ID);
   const panel = document.getElementById(QUICK_PANEL_ID);
   if ((launcher && launcher.contains(event.target)) || (panel && panel.contains(event.target))) return;
 
   const editor = findEditableFromTarget(event.target);
-  if (looksLikeChatComposer(editor)) {
+  if (looksLikeQuickComposer(editor)) {
     setTimeout(() => positionQuickLauncher(editor), 60);
     return;
   }
