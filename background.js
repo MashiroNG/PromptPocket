@@ -848,6 +848,29 @@ async function handlePromptCopy(promptId, text) {
   showToast(ok ? '已复制，请按 Ctrl+V 粘贴' : '复制失败');
 }
 
+async function handleSelectionCommandCopy(text, tab, frameId) {
+  const { autoPaste } = await chrome.storage.local.get({ autoPaste: false });
+  const activeTab = tab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  const tabId = activeTab && activeTab.id;
+  const url = activeTab && activeTab.url || '';
+  const restricted = /^(chrome|chrome-extension|devtools|edge|about|centbrowser):/i.test(url);
+
+  if (autoPaste && tabId && !restricted) {
+    const pasted = await tryPasteInTab(tabId, text, frameId);
+    if (pasted) {
+      showToast('已粘贴');
+      return { pasted: true };
+    }
+  }
+  if (restricted) {
+    showToast('浏览器内部页面不可用，请切换到普通网页');
+    return { pasted: false, copied: false };
+  }
+  const ok = await copyToClipboard(text);
+  showToast(ok ? '已复制，请按 Ctrl+V 粘贴' : '复制失败');
+  return { pasted: false, copied: ok };
+}
+
 let debounceTimer;
 function debouncedRebuild() {
   clearTimeout(debounceTimer);
@@ -944,6 +967,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.action === 'usePrompt') {
     handlePromptCopy(msg.promptId || '', msg.text || '').then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+  if (msg.action === 'useSelectionCommand') {
+    const tab = sender && sender.tab || null;
+    handleSelectionCommandCopy(msg.text || '', tab, sender && sender.frameId).then(result => {
+      sendResponse({ success: true, pasted: !!(result && result.pasted), copied: !!(result && result.copied) });
+    }).catch(e => sendResponse({ success: false, error: e.message }));
     return true;
   }
   if (msg.action === 'rebuildMenu') {

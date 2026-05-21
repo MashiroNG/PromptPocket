@@ -1,6 +1,9 @@
 /* PromptPocket - content script for selection save and quick prompt input */
 
 const FLOAT_BUTTON_ID = 'simplest-prompt-save-float';
+const FLOAT_WRAP_ID = 'simplest-prompt-selection-float';
+const FLOAT_COMMAND_BUTTON_ID = 'simplest-prompt-command-float';
+const FLOAT_COMMAND_PANEL_ID = 'simplest-prompt-command-panel';
 const QUICK_LAUNCHER_ID = 'simplest-prompt-quick-launcher';
 const QUICK_PANEL_ID = 'simplest-prompt-quick-panel';
 const QUICK_STYLE_ID = 'simplest-prompt-quick-style';
@@ -70,12 +73,19 @@ function getWindowGeometry() {
 }
 
 function removeFloatButton() {
-  const existing = document.getElementById(FLOAT_BUTTON_ID);
-  if (existing) existing.remove();
+  [FLOAT_WRAP_ID, FLOAT_BUTTON_ID, FLOAT_COMMAND_BUTTON_ID, FLOAT_COMMAND_PANEL_ID].forEach(id => {
+    const existing = document.getElementById(id);
+    if (existing) existing.remove();
+  });
   if (floatHideTimer) {
     clearTimeout(floatHideTimer);
     floatHideTimer = null;
   }
+}
+
+function closeSelectionCommandPanel() {
+  const panel = document.getElementById(FLOAT_COMMAND_PANEL_ID);
+  if (panel) panel.remove();
 }
 
 function showContentNotice(message) {
@@ -102,41 +112,165 @@ function showContentNotice(message) {
   setTimeout(() => el.remove(), 3200);
 }
 
+function applySelectionTemplateText(template, selectedText) {
+  const base = (template || '').toString();
+  return base.replace(/{{\s*text\s*}}/gi, selectedText || '');
+}
+
+function createSelectionFloatButton(id, text, isPrimary = false) {
+  const button = document.createElement('button');
+  button.id = id;
+  button.type = 'button';
+  button.textContent = text;
+  button.style.cssText = [
+    'height:32px',
+    'padding:0 12px',
+    'border-radius:999px',
+    'border:1px solid rgba(248,248,248,.18)',
+    isPrimary ? 'background:#202020' : 'background:linear-gradient(180deg,#2e2e2e,#131313)',
+    'color:#f8f8f8',
+    'box-shadow:0 10px 28px rgba(0,0,0,.32), inset 0 1px 0 rgba(248,248,248,.06)',
+    'font:700 13px/1 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif',
+    'cursor:pointer',
+    'user-select:none',
+    'white-space:nowrap'
+  ].join(';');
+  button.addEventListener('mousedown', event => event.preventDefault());
+  return button;
+}
+
+async function loadSelectionCommands() {
+  if (!hasRuntimeContext()) return [];
+  const { selectionPrompts } = await chrome.storage.local.get({ selectionPrompts: [] });
+  return Array.isArray(selectionPrompts) ? selectionPrompts.filter(item => item && item.template) : [];
+}
+
+async function useSelectionCommand(command) {
+  const text = getSelectedText();
+  if (!text) {
+    removeFloatButton();
+    return;
+  }
+  const composed = applySelectionTemplateText(command.template || '', text);
+  chrome.runtime.sendMessage({ action: 'useSelectionCommand', text: composed }, response => {
+    if (chrome.runtime.lastError || !response || !response.success) {
+      showContentNotice(chrome.runtime.lastError && chrome.runtime.lastError.message || response && response.error || '执行快捷指令失败');
+      return;
+    }
+    showContentNotice(response.pasted ? '已粘贴' : (response.copied ? '已复制，请按 Ctrl+V 粘贴' : '执行快捷指令失败'));
+    closeSelectionCommandPanel();
+  });
+}
+
+async function toggleSelectionCommandPanel(anchor) {
+  const existing = document.getElementById(FLOAT_COMMAND_PANEL_ID);
+  if (existing) {
+    existing.remove();
+    return;
+  }
+
+  const commands = await loadSelectionCommands();
+  const panel = document.createElement('div');
+  panel.id = FLOAT_COMMAND_PANEL_ID;
+  panel.style.cssText = [
+    'position:fixed',
+    'z-index:2147483647',
+    'width:240px',
+    'max-height:280px',
+    'padding:8px',
+    'border-radius:14px',
+    'border:1px solid rgba(248,248,248,.18)',
+    'background:rgba(32,32,32,.96)',
+    'color:#f8f8f8',
+    'box-shadow:0 18px 46px rgba(0,0,0,.38), inset 0 1px 0 rgba(248,248,248,.06)',
+    'backdrop-filter:blur(14px)',
+    'overflow:auto',
+    'font:13px/1.4 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif'
+  ].join(';');
+  panel.addEventListener('mousedown', event => event.preventDefault());
+
+  if (commands.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = '还没有选中文本指令';
+    empty.style.cssText = 'padding:14px 10px;color:#c7c7c7;text-align:center;';
+    panel.appendChild(empty);
+  } else {
+    commands.slice(0, 24).forEach((command, index) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.textContent = command.name || '未命名指令';
+      item.style.cssText = [
+        'width:100%',
+        'min-height:34px',
+        'padding:0 10px',
+        'margin-top:' + (index === 0 ? '0' : '6px'),
+        'border-radius:10px',
+        'border:1px solid rgba(248,248,248,.1)',
+        'background:rgba(248,248,248,.06)',
+        'color:#f8f8f8',
+        'cursor:pointer',
+        'font:800 13px/1 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif',
+        'text-align:left',
+        'overflow:hidden',
+        'text-overflow:ellipsis',
+        'white-space:nowrap'
+      ].join(';');
+      item.addEventListener('mouseenter', () => {
+        item.style.background = 'rgba(248,248,248,.12)';
+        item.style.borderColor = 'rgba(248,248,248,.2)';
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.background = 'rgba(248,248,248,.06)';
+        item.style.borderColor = 'rgba(248,248,248,.1)';
+      });
+      item.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        useSelectionCommand(command);
+      });
+      panel.appendChild(item);
+    });
+  }
+
+  document.documentElement.appendChild(panel);
+  const rect = anchor.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const margin = 8;
+  let left = rect.right - panelRect.width;
+  let top = rect.bottom + 8;
+  if (top + panelRect.height > window.innerHeight - margin) top = rect.top - panelRect.height - 8;
+  left = Math.max(margin, Math.min(left, window.innerWidth - panelRect.width - margin));
+  top = Math.max(margin, Math.min(top, window.innerHeight - panelRect.height - margin));
+  panel.style.left = left + 'px';
+  panel.style.top = top + 'px';
+}
+
 function ensureFloatButton() {
   if (!hasRuntimeContext()) {
     deactivateExtensionFeatures();
     return null;
   }
 
-  let button = document.getElementById(FLOAT_BUTTON_ID);
-  if (button) return button;
+  let wrap = document.getElementById(FLOAT_WRAP_ID);
+  if (wrap) return wrap;
 
-  button = document.createElement('button');
-  button.id = FLOAT_BUTTON_ID;
-  button.type = 'button';
-  button.textContent = '保存提示词';
-  button.style.cssText = [
+  wrap = document.createElement('div');
+  wrap.id = FLOAT_WRAP_ID;
+  wrap.style.cssText = [
     'position:fixed',
     'z-index:2147483647',
     'display:none',
     'align-items:center',
-    'gap:6px',
-    'height:32px',
-    'padding:0 12px',
-    'border-radius:999px',
-    'border:1px solid rgba(248,248,248,.18)',
-    'background:#202020',
-    'color:#f8f8f8',
-    'box-shadow:0 10px 28px rgba(0,0,0,.32), inset 0 1px 0 rgba(248,248,248,.06)',
-    'font:700 13px/1 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif',
-    'cursor:pointer',
-    'user-select:none'
+    'gap:8px'
   ].join(';');
 
-  button.addEventListener('mousedown', event => event.preventDefault());
-  button.addEventListener('click', event => {
+  const saveButton = createSelectionFloatButton(FLOAT_BUTTON_ID, '保存提示词', true);
+  const commandButton = createSelectionFloatButton(FLOAT_COMMAND_BUTTON_ID, '快捷指令');
+
+  saveButton.addEventListener('click', event => {
     event.preventDefault();
     event.stopPropagation();
+    closeSelectionCommandPanel();
     const text = getSelectedText();
     if (!text) {
       removeFloatButton();
@@ -163,8 +297,21 @@ function ensureFloatButton() {
     }
   });
 
-  document.documentElement.appendChild(button);
-  return button;
+  commandButton.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!getSelectedText()) {
+      removeFloatButton();
+      return;
+    }
+    toggleSelectionCommandPanel(commandButton).catch(error => {
+      showContentNotice(error.message || '读取快捷指令失败');
+    });
+  });
+
+  wrap.append(saveButton, commandButton);
+  document.documentElement.appendChild(wrap);
+  return wrap;
 }
 
 function positionFloatButton() {
@@ -180,10 +327,10 @@ function positionFloatButton() {
     return;
   }
 
-  const button = ensureFloatButton();
-  if (!button) return;
-  button.style.display = 'inline-flex';
-  const buttonRect = button.getBoundingClientRect();
+  const wrap = ensureFloatButton();
+  if (!wrap) return;
+  wrap.style.display = 'inline-flex';
+  const buttonRect = wrap.getBoundingClientRect();
   const margin = 8;
   let top = rect.bottom + margin;
   let left = rect.left + rect.width / 2 - buttonRect.width / 2;
@@ -194,8 +341,14 @@ function positionFloatButton() {
   left = Math.max(margin, Math.min(left, window.innerWidth - buttonRect.width - margin));
   top = Math.max(margin, Math.min(top, window.innerHeight - buttonRect.height - margin));
 
-  button.style.left = left + 'px';
-  button.style.top = top + 'px';
+  wrap.style.left = left + 'px';
+  wrap.style.top = top + 'px';
+  const panel = document.getElementById(FLOAT_COMMAND_PANEL_ID);
+  const commandButton = document.getElementById(FLOAT_COMMAND_BUTTON_ID);
+  if (panel && commandButton) {
+    panel.remove();
+    toggleSelectionCommandPanel(commandButton).catch(() => {});
+  }
 
   if (floatHideTimer) clearTimeout(floatHideTimer);
   floatHideTimer = setTimeout(() => {
@@ -210,8 +363,12 @@ document.addEventListener('selectionchange', () => {
 
 document.addEventListener('mousedown', event => {
   if (!extensionFeaturesActive) return;
-  const button = document.getElementById(FLOAT_BUTTON_ID);
-  if (button && event.target !== button && !button.contains(event.target)) {
+  const wrap = document.getElementById(FLOAT_WRAP_ID);
+  const panel = document.getElementById(FLOAT_COMMAND_PANEL_ID);
+  if (panel && !panel.contains(event.target) && (!wrap || !wrap.contains(event.target))) {
+    closeSelectionCommandPanel();
+  }
+  if (wrap && event.target !== wrap && !wrap.contains(event.target) && (!panel || !panel.contains(event.target))) {
     setTimeout(() => {
       if (!getSelectedText()) removeFloatButton();
     }, 120);
