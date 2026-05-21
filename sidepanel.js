@@ -1097,7 +1097,7 @@ function renderSelectionPrompts() {
   listEl.innerHTML = '';
   listEl.classList.add('ai-card-list');
   if (selectionPrompts.length === 0) {
-    listEl.innerHTML = '<div class="empty">还没有处理模板。点击“+ 模板”添加。</div>';
+    listEl.innerHTML = '<div class="empty">还没有选中文本指令。点击“+ 指令”添加。</div>';
     return;
   }
   selectionPrompts.forEach((p, index) => {
@@ -1110,8 +1110,8 @@ function renderSelectionPrompts() {
     card.innerHTML = `
       <div class="ai-card-main">
         <div>
-          <div class="title">${escapeHtml(p.name || '未命名模板')}</div>
-          <div class="meta">右键处理模板</div>
+          <div class="title">${escapeHtml(p.name || '未命名指令')}</div>
+          <div class="meta">右键选中文字时使用</div>
         </div>
         <button type="button" class="btn" data-action="edit-selection" data-id="${p.id}">编辑</button>
       </div>
@@ -1165,7 +1165,7 @@ function openEditAiTargetModal(targetId) {
 }
 
 function openAddSelectionPromptModal() {
-  document.getElementById('modalSelectionPromptTitle').textContent = '新建处理模板';
+  document.getElementById('modalSelectionPromptTitle').textContent = '新建选中文本指令';
   document.getElementById('selectionPromptName').value = '';
   document.getElementById('selectionPromptTemplate').value = '';
   document.getElementById('saveSelectionPrompt').dataset.editId = '';
@@ -1176,7 +1176,7 @@ function openAddSelectionPromptModal() {
 function openEditSelectionPromptModal(promptId) {
   const prompt = selectionPrompts.find(p => p.id === promptId);
   if (!prompt) return;
-  document.getElementById('modalSelectionPromptTitle').textContent = '编辑处理模板';
+  document.getElementById('modalSelectionPromptTitle').textContent = '编辑选中文本指令';
   document.getElementById('selectionPromptName').value = prompt.name || '';
   document.getElementById('selectionPromptTemplate').value = prompt.template || '';
   document.getElementById('saveSelectionPrompt').dataset.editId = prompt.id;
@@ -1309,7 +1309,7 @@ function savePromptFromModal() {
 }
 
 function saveSelectionPromptFromModal() {
-  const name = document.getElementById('selectionPromptName').value.trim() || '处理模板';
+  const name = document.getElementById('selectionPromptName').value.trim() || '选中文本指令';
   const template = document.getElementById('selectionPromptTemplate').value.trim();
   const editId = document.getElementById('saveSelectionPrompt').dataset.editId;
 
@@ -1894,7 +1894,7 @@ function importAiConfig(file) {
       })) : [];
       const nextPrompts = Array.isArray(data.selectionPrompts) ? data.selectionPrompts.map(p => ({
         id: p.id || uuid(),
-        name: p.name || '处理模板',
+        name: p.name || '选中文本指令',
         template: p.template || '',
         timestamp: p.timestamp || new Date().toISOString()
       })) : [];
@@ -1904,7 +1904,7 @@ function importAiConfig(file) {
       await saveAiConfig();
       loadAiConfig();
       document.getElementById('aiImportFile').value = '';
-      alert('导入完成，共载入 ' + nextTargets.length + ' 个 AI 目标、' + nextPrompts.length + ' 个处理模板。');
+      alert('导入完成，共载入 ' + nextTargets.length + ' 个 AI 目标、' + nextPrompts.length + ' 个选中文本指令。');
     } catch (err) {
       alert('JSON 或格式无效：' + (err.message || err));
     }

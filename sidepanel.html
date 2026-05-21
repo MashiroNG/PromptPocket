@@ -101,7 +101,7 @@
         <span class="ai-enable-switch" aria-hidden="true"></span>
         <span class="ai-enable-copy">
           <strong>选中文本处理</strong>
-          <span>选中网页文字后，用模板发送到指定 AI 目标。</span>
+          <span>选中网页文字后，用指令发送到指定 AI 目标。</span>
         </span>
       </label>
       <div class="ai-toolbar-actions">
@@ -121,14 +121,14 @@
       </div>
       <div class="section">
         <div class="section-header">
-          <div class="section-title">处理模板</div>
-          <button type="button" class="btn" id="addSelectionPrompt">+ 模板</button>
+          <div class="section-title">选中文本指令</div>
+          <button type="button" class="btn" id="addSelectionPrompt">+ 指令</button>
         </div>
         <div id="selectionPromptsList"></div>
       </div>
     </div>
     <div class="hint">
-      <span>拖拽可调整模板顺序，双击可编辑。</span>
+      <span>拖拽可调整指令顺序，双击可编辑。</span>
       <span></span>
     </div>
   </div>
@@ -263,9 +263,9 @@
 
   <div id="modalSelectionPrompt" class="modal hidden">
     <div class="modal-inner">
-      <h3 id="modalSelectionPromptTitle">新建处理模板</h3>
+      <h3 id="modalSelectionPromptTitle">新建选中文本指令</h3>
       <input type="text" id="selectionPromptName" placeholder="名称" />
-      <textarea id="selectionPromptTemplate" placeholder="模板内容，使用 {{text}} 代表选中文本"></textarea>
+      <textarea id="selectionPromptTemplate" placeholder="指令内容，使用 {{text}} 代表选中的文字"></textarea>
       <div class="buttons">
         <button type="button" class="btn danger left hidden" id="deleteSelectionPrompt">删除</button>
         <button type="button" class="btn ghost" id="cancelSelectionPrompt">取消</button>

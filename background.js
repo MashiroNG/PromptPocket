@@ -288,7 +288,7 @@ async function buildAiOnSelectionMenu() {
     chrome.contextMenus.create({
       id: 'ai_open_panel_empty_prompts',
       parentId: AI_MENU_ROOT,
-      title: '在面板中添加处理模板...',
+      title: '在面板中添加选中文本指令...',
       contexts: ['selection']
     });
     return;
@@ -309,7 +309,7 @@ async function buildAiOnSelectionMenu() {
     chrome.contextMenus.create({
       id: promptId,
       parentId: AI_MENU_ROOT,
-      title: (sp.name || '未命名模板').substring(0, 50),
+      title: (sp.name || '未命名指令').substring(0, 50),
       contexts: ['selection']
     });
     for (const target of aiTargets) {
