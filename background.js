@@ -215,16 +215,60 @@ async function getAiSelectionConfig() {
   };
 }
 
-async function buildContextMenu() {
-  await chrome.contextMenus.removeAll();
-  chrome.contextMenus.create({ id: MENU_ROOT, title: 'PromptPocket 提示词口袋', contexts: ['all'] });
-  chrome.contextMenus.create({ id: SAVE_SELECTION_ID, parentId: MENU_ROOT, title: '保存选中内容为提示词', contexts: ['selection'] });
-  chrome.contextMenus.create({ id: 'rcp_save_sep', type: 'separator', parentId: MENU_ROOT, contexts: ['selection'] });
+let contextMenuBuildQueue = Promise.resolve();
+
+function clearRuntimeError() {
+  return chrome.runtime.lastError && chrome.runtime.lastError.message || '';
+}
+
+function removeAllContextMenus() {
+  return new Promise((resolve) => {
+    try {
+      chrome.contextMenus.removeAll(() => {
+        clearRuntimeError();
+        resolve();
+      });
+    } catch (error) {
+      console.warn('PromptPocket context menu remove failed:', error);
+      resolve();
+    }
+  });
+}
+
+function createContextMenu(item) {
+  return new Promise((resolve) => {
+    try {
+      chrome.contextMenus.create(item, () => {
+        const message = clearRuntimeError();
+        if (message && !/duplicate id/i.test(message)) {
+          console.warn('PromptPocket context menu create failed:', message, item && item.id);
+        }
+        resolve(!message);
+      });
+    } catch (error) {
+      console.warn('PromptPocket context menu create failed:', error, item && item.id);
+      resolve(false);
+    }
+  });
+}
+
+function buildContextMenu() {
+  contextMenuBuildQueue = contextMenuBuildQueue
+    .catch(() => {})
+    .then(rebuildContextMenu);
+  return contextMenuBuildQueue;
+}
+
+async function rebuildContextMenu() {
+  await removeAllContextMenus();
+  await createContextMenu({ id: MENU_ROOT, title: 'PromptPocket 提示词口袋', contexts: ['all'] });
+  await createContextMenu({ id: SAVE_SELECTION_ID, parentId: MENU_ROOT, title: '保存选中内容为提示词', contexts: ['selection'] });
+  await createContextMenu({ id: 'rcp_save_sep', type: 'separator', parentId: MENU_ROOT, contexts: ['selection'] });
 
   const folders = await getFolders();
   const pinnedPrompts = getPinnedPrompts(folders);
   for (const { prompt } of pinnedPrompts) {
-    chrome.contextMenus.create({
+    await createContextMenu({
       id: PINNED_PROMPT_PREFIX + prompt.id,
       parentId: MENU_ROOT,
       title: '★ ' + (prompt.title || '未命名提示词').substring(0, 48),
@@ -232,17 +276,17 @@ async function buildContextMenu() {
     });
   }
   if (pinnedPrompts.length > 0) {
-    chrome.contextMenus.create({ id: 'rcp_pinned_sep', type: 'separator', parentId: MENU_ROOT, contexts: ['all'] });
+    await createContextMenu({ id: 'rcp_pinned_sep', type: 'separator', parentId: MENU_ROOT, contexts: ['all'] });
   }
 
   const withPrompts = folders.filter(f => f.prompts && f.prompts.length > 0);
 
   if (withPrompts.length === 0) {
-    chrome.contextMenus.create({ id: 'rcp_open_panel', parentId: MENU_ROOT, title: '打开面板添加提示词...', contexts: ['all'] });
+    await createContextMenu({ id: 'rcp_open_panel', parentId: MENU_ROOT, title: '打开面板添加提示词...', contexts: ['all'] });
   } else {
     const sliceFolders = withPrompts.slice(0, MAX_FOLDERS);
     for (const folder of sliceFolders) {
-      chrome.contextMenus.create({
+      await createContextMenu({
         id: 'folder_' + folder.id,
         parentId: MENU_ROOT,
         title: folder.name,
@@ -250,7 +294,7 @@ async function buildContextMenu() {
       });
       const prompts = (folder.prompts || []).slice(0, MAX_PROMPTS_PER_FOLDER);
       for (const p of prompts) {
-        chrome.contextMenus.create({
+        await createContextMenu({
           id: PROMPT_PREFIX + p.id,
           parentId: 'folder_' + folder.id,
           title: (p.title || '未命名提示词').substring(0, 50),
@@ -258,7 +302,7 @@ async function buildContextMenu() {
         });
       }
       if ((folder.prompts || []).length > MAX_PROMPTS_PER_FOLDER) {
-        chrome.contextMenus.create({
+        await createContextMenu({
           id: 'more_' + folder.id,
           parentId: 'folder_' + folder.id,
           title: '更多内容请在面板中查看',
@@ -267,13 +311,13 @@ async function buildContextMenu() {
       }
     }
     if (withPrompts.length > MAX_FOLDERS) {
-      chrome.contextMenus.create({ id: 'rcp_more_folders', parentId: MENU_ROOT, title: '更多文件夹请在面板中查看', contexts: ['all'] });
+      await createContextMenu({ id: 'rcp_more_folders', parentId: MENU_ROOT, title: '更多文件夹请在面板中查看', contexts: ['all'] });
     }
   }
 
-  chrome.contextMenus.create({ id: 'rcp_sep1', type: 'separator', parentId: MENU_ROOT, contexts: ['all'] });
-  chrome.contextMenus.create({ id: 'rcp_open_panel_2', parentId: MENU_ROOT, title: '打开管理面板', contexts: ['all'] });
-  chrome.contextMenus.create({ id: 'rcp_refresh', parentId: MENU_ROOT, title: '刷新菜单', contexts: ['all'] });
+  await createContextMenu({ id: 'rcp_sep1', type: 'separator', parentId: MENU_ROOT, contexts: ['all'] });
+  await createContextMenu({ id: 'rcp_open_panel_2', parentId: MENU_ROOT, title: '打开管理面板', contexts: ['all'] });
+  await createContextMenu({ id: 'rcp_refresh', parentId: MENU_ROOT, title: '刷新菜单', contexts: ['all'] });
 
   await buildAiOnSelectionMenu();
 }
@@ -282,10 +326,10 @@ async function buildAiOnSelectionMenu() {
   const { aiOnSelectionEnabled, aiTargets, selectionPrompts } = await getAiSelectionConfig();
   if (!aiOnSelectionEnabled) return;
 
-  chrome.contextMenus.create({ id: AI_MENU_ROOT, title: '选中文本发送给 AI', contexts: ['selection'] });
+  await createContextMenu({ id: AI_MENU_ROOT, title: '选中文本发送给 AI', contexts: ['selection'] });
 
   if (selectionPrompts.length === 0) {
-    chrome.contextMenus.create({
+    await createContextMenu({
       id: 'ai_open_panel_empty_prompts',
       parentId: AI_MENU_ROOT,
       title: '在面板中添加选中文本指令...',
@@ -295,7 +339,7 @@ async function buildAiOnSelectionMenu() {
   }
 
   if (aiTargets.length === 0) {
-    chrome.contextMenus.create({
+    await createContextMenu({
       id: 'ai_open_panel_empty_targets',
       parentId: AI_MENU_ROOT,
       title: '在面板中添加 AI 目标...',
@@ -306,14 +350,14 @@ async function buildAiOnSelectionMenu() {
 
   for (const sp of selectionPrompts) {
     const promptId = 'ai_prompt_' + sp.id;
-    chrome.contextMenus.create({
+    await createContextMenu({
       id: promptId,
       parentId: AI_MENU_ROOT,
       title: (sp.name || '未命名指令').substring(0, 50),
       contexts: ['selection']
     });
     for (const target of aiTargets) {
-      chrome.contextMenus.create({
+      await createContextMenu({
         id: `ai_target__${sp.id}__${target.id}`,
         parentId: promptId,
         title: (target.name || 'AI').substring(0, 50),
@@ -322,7 +366,7 @@ async function buildAiOnSelectionMenu() {
     }
   }
 
-  chrome.contextMenus.create({
+  await createContextMenu({
     id: 'ai_open_panel',
     parentId: AI_MENU_ROOT,
     title: '打开管理面板',
