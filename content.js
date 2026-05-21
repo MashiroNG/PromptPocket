@@ -162,6 +162,69 @@ async function useSelectionCommand(command) {
   });
 }
 
+function renderSelectionCommandList(panel, commands, query = '') {
+  const list = panel.querySelector('[data-sp-command-list]');
+  if (!list) return;
+  const q = String(query || '').trim().toLowerCase();
+  const filtered = commands.filter(command => {
+    const haystack = [command.name, command.template].join(' ').toLowerCase();
+    return !q || haystack.includes(q);
+  }).slice(0, 24);
+
+  list.innerHTML = '';
+  if (filtered.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = commands.length === 0 ? '还没有选中文本指令' : '没有匹配的指令';
+    empty.style.cssText = 'padding:22px 10px;text-align:center;color:#6b6b6b;font-size:13px;border:1px dashed rgba(2,2,2,.12);border-radius:12px;background:#fff;';
+    list.appendChild(empty);
+    return;
+  }
+
+  filtered.forEach((command, index) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.style.cssText = [
+      'width:100%',
+      'display:grid',
+      'gap:5px',
+      'padding:11px 12px',
+      'border-radius:14px',
+      'border:1px solid rgba(2,2,2,.08)',
+      'background:#fff',
+      'color:#131313',
+      'cursor:pointer',
+      'text-align:left',
+      'font:inherit',
+      'box-shadow:0 2px 10px rgba(0,0,0,.04)',
+      'animation:spQuickItemIn .18s cubic-bezier(.2,.85,.25,1) both',
+      'animation-delay:' + Math.min(index, 8) * 18 + 'ms',
+      'transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease'
+    ].join(';');
+    const preview = (command.template || '').replace(/\s+/g, ' ').trim();
+    item.innerHTML = [
+      '<span style="font-weight:850;font-size:14px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtmlText(command.name || '未命名指令') + '</span>',
+      '<span style="color:#6b6b6b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">选中文本指令</span>',
+      '<span style="color:#989898;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtmlText(preview || '点击后套用选中的文字') + '</span>'
+    ].join('');
+    item.addEventListener('mouseenter', () => {
+      item.style.transform = 'translateY(-1px)';
+      item.style.borderColor = 'rgba(2,2,2,.18)';
+      item.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)';
+    });
+    item.addEventListener('mouseleave', () => {
+      item.style.transform = 'translateY(0)';
+      item.style.borderColor = 'rgba(2,2,2,.08)';
+      item.style.boxShadow = '0 2px 10px rgba(0,0,0,.04)';
+    });
+    item.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      useSelectionCommand(command);
+    });
+    list.appendChild(item);
+  });
+}
+
 async function toggleSelectionCommandPanel(anchor) {
   const existing = document.getElementById(FLOAT_COMMAND_PANEL_ID);
   if (existing) {
@@ -175,64 +238,44 @@ async function toggleSelectionCommandPanel(anchor) {
   panel.style.cssText = [
     'position:fixed',
     'z-index:2147483647',
-    'width:240px',
-    'max-height:280px',
-    'padding:8px',
-    'border-radius:14px',
-    'border:1px solid rgba(248,248,248,.18)',
-    'background:rgba(32,32,32,.96)',
-    'color:#f8f8f8',
-    'box-shadow:0 18px 46px rgba(0,0,0,.38), inset 0 1px 0 rgba(248,248,248,.06)',
-    'backdrop-filter:blur(14px)',
-    'overflow:auto',
-    'font:13px/1.4 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif'
+    'width:324px',
+    'max-height:390px',
+    'display:grid',
+    'grid-template-rows:auto 1fr',
+    'gap:10px',
+    'padding:12px',
+    'border-radius:18px',
+    'border:1px solid rgba(2,2,2,.08)',
+    'background:rgba(248,248,248,.96)',
+    'color:#131313',
+    'box-shadow:0 24px 60px rgba(0,0,0,.18), 0 3px 12px rgba(0,0,0,.08)',
+    'backdrop-filter:blur(18px)',
+    'font:14px/1.45 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif',
+    'transform-origin:top right',
+    'animation:spQuickPanelIn .2s cubic-bezier(.2,.85,.25,1) both'
   ].join(';');
-  panel.addEventListener('mousedown', event => event.preventDefault());
-
-  if (commands.length === 0) {
-    const empty = document.createElement('div');
-    empty.textContent = '还没有选中文本指令';
-    empty.style.cssText = 'padding:14px 10px;color:#c7c7c7;text-align:center;';
-    panel.appendChild(empty);
-  } else {
-    commands.slice(0, 24).forEach((command, index) => {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.textContent = command.name || '未命名指令';
-      item.style.cssText = [
-        'width:100%',
-        'min-height:34px',
-        'padding:0 10px',
-        'margin-top:' + (index === 0 ? '0' : '6px'),
-        'border-radius:10px',
-        'border:1px solid rgba(248,248,248,.1)',
-        'background:rgba(248,248,248,.06)',
-        'color:#f8f8f8',
-        'cursor:pointer',
-        'font:800 13px/1 "Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif',
-        'text-align:left',
-        'overflow:hidden',
-        'text-overflow:ellipsis',
-        'white-space:nowrap'
-      ].join(';');
-      item.addEventListener('mouseenter', () => {
-        item.style.background = 'rgba(248,248,248,.12)';
-        item.style.borderColor = 'rgba(248,248,248,.2)';
-      });
-      item.addEventListener('mouseleave', () => {
-        item.style.background = 'rgba(248,248,248,.06)';
-        item.style.borderColor = 'rgba(248,248,248,.1)';
-      });
-      item.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        useSelectionCommand(command);
-      });
-      panel.appendChild(item);
-    });
-  }
+  panel.innerHTML = [
+    '<div style="display:grid;gap:10px;">',
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">',
+    '<div style="display:grid;gap:2px;">',
+    '<strong style="font-size:15px;line-height:1.2;color:#020202;">快捷指令</strong>',
+    '<span style="font-size:12px;color:#6b6b6b;">点击后处理选中的文字</span>',
+    '</div>',
+    '<button type="button" data-sp-command-close aria-label="关闭" style="width:30px;height:30px;border:1px solid rgba(2,2,2,.08);border-radius:999px;background:#fff;color:#414141;cursor:pointer;font:700 17px/1 system-ui;box-shadow:0 2px 8px rgba(0,0,0,.04);">×</button>',
+    '</div>',
+    '<input data-sp-command-search type="search" placeholder="搜索指令名称或内容" style="width:100%;height:38px;border:1px solid rgba(2,2,2,.1);border-radius:12px;background:#fff;color:#131313;padding:0 12px;font:13px Microsoft YaHei UI, Microsoft YaHei, sans-serif;outline:none;box-shadow:inset 0 1px 1px rgba(0,0,0,.03);">',
+    '</div>',
+    '<div data-sp-command-list style="display:grid;gap:8px;overflow:auto;max-height:290px;padding-right:2px;scrollbar-width:thin;scrollbar-color:rgba(2,2,2,.24) transparent;"></div>'
+  ].join('');
+  panel.addEventListener('mousedown', event => {
+    const target = event.target && event.target.nodeType === Node.ELEMENT_NODE ? event.target : event.target && event.target.parentElement;
+    if (!target || !target.closest('[data-sp-command-search]')) event.preventDefault();
+  });
+  panel.querySelector('[data-sp-command-close]').addEventListener('click', closeSelectionCommandPanel);
+  panel.querySelector('[data-sp-command-search]').addEventListener('input', event => renderSelectionCommandList(panel, commands, event.target.value || ''));
 
   document.documentElement.appendChild(panel);
+  renderSelectionCommandList(panel, commands);
   const rect = anchor.getBoundingClientRect();
   const panelRect = panel.getBoundingClientRect();
   const margin = 8;
