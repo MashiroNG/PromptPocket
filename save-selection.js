@@ -2,6 +2,15 @@ let currentDraft = null;
 let folders = [];
 const DEFAULT_FOLDER_NAME = '收件箱';
 
+function applyTheme(theme) {
+  document.body.classList.toggle('theme-light', theme === 'light');
+}
+
+async function loadTheme() {
+  const { sidepanelTheme } = await chrome.storage.local.get({ sidepanelTheme: 'dark' });
+  applyTheme(sidepanelTheme);
+}
+
 function showError(message) {
   const el = document.getElementById('errorText');
   el.textContent = message;
@@ -140,4 +149,11 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') window.close();
 });
 
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.sidepanelTheme) {
+    applyTheme(changes.sidepanelTheme.newValue);
+  }
+});
+
+loadTheme().catch(() => {});
 loadDraft().catch((error) => showError(error.message || '读取选中内容失败。'));
