@@ -1054,23 +1054,37 @@ function renderAiTargets() {
   const listEl = document.getElementById('aiTargetsList');
   if (!listEl) return;
   listEl.innerHTML = '';
+  listEl.classList.add('ai-card-list');
   if (aiTargets.length === 0) {
     listEl.innerHTML = '<div class="empty">还没有 AI 目标。点击“+ 目标”添加。</div>';
     return;
   }
   aiTargets.forEach((t, index) => {
     const card = document.createElement('div');
-    card.className = 'list-item';
+    card.className = 'list-item ai-target-card';
     card.dataset.id = t.id;
     card.style.setProperty('--item-index', Math.min(index, 8));
     const queryLabel = (t.queryParam === '' || t.queryParam == null) ? '—' : (t.queryParam || 'q=');
+    const hostLabel = (() => {
+      try {
+        return new URL(t.baseUrl || '').hostname.replace(/^www\./, '') || '未设置网址';
+      } catch (error) {
+        return t.baseUrl || '未设置网址';
+      }
+    })();
     card.innerHTML = `
-      <div class="title">${escapeHtml(t.name || 'AI')}</div>
-      <div class="meta">${escapeHtml(t.baseUrl || '')}</div>
-      <div class="meta">Query: ${escapeHtml(queryLabel)}${t.usePasteFallback ? ' · paste fallback' : ''}</div>
-      <div class="actions">
+      <div class="ai-card-main">
+        <div>
+          <div class="title">${escapeHtml(t.name || 'AI')}</div>
+          <div class="meta">${escapeHtml(hostLabel)}</div>
+        </div>
         <button type="button" class="btn" data-action="edit-target" data-id="${t.id}">编辑</button>
       </div>
+      <div class="ai-card-tags">
+        <span>${t.usePasteFallback ? '粘贴模式' : 'URL 参数'}</span>
+        <span>Query: ${escapeHtml(queryLabel)}</span>
+      </div>
+      <div class="meta ai-card-url">${escapeHtml(t.baseUrl || '')}</div>
     `;
     card.addEventListener('dblclick', () => openEditAiTargetModal(t.id));
     listEl.appendChild(card);
@@ -1081,6 +1095,7 @@ function renderSelectionPrompts() {
   const listEl = document.getElementById('selectionPromptsList');
   if (!listEl) return;
   listEl.innerHTML = '';
+  listEl.classList.add('ai-card-list');
   if (selectionPrompts.length === 0) {
     listEl.innerHTML = '<div class="empty">还没有处理模板。点击“+ 模板”添加。</div>';
     return;
@@ -1093,11 +1108,14 @@ function renderSelectionPrompts() {
     card.style.setProperty('--item-index', Math.min(index, 8));
     const preview = (p.template || '').slice(0, 120);
     card.innerHTML = `
-      <div class="title">${escapeHtml(p.name || '未命名模板')}</div>
-      <div class="meta">${escapeHtml(preview)}${(p.template || '').length > 120 ? '…' : ''}</div>
-      <div class="actions">
+      <div class="ai-card-main">
+        <div>
+          <div class="title">${escapeHtml(p.name || '未命名模板')}</div>
+          <div class="meta">右键处理模板</div>
+        </div>
         <button type="button" class="btn" data-action="edit-selection" data-id="${p.id}">编辑</button>
       </div>
+      <div class="meta ai-template-preview">${escapeHtml(preview)}${(p.template || '').length > 120 ? '…' : ''}</div>
     `;
     card.addEventListener('dblclick', () => openEditSelectionPromptModal(p.id));
     card.addEventListener('dragstart', (e) => onSelectionPromptDragStart(e, p.id));

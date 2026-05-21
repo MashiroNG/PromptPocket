@@ -96,16 +96,20 @@
 
   <div id="tabAi" class="tab-content hidden">
     <div class="ai-toolbar">
-      <label class="toggle-row">
+      <label class="ai-enable-card">
         <input type="checkbox" id="aiSelectionEnabled" />
-        <span>启用选中文本处理</span>
+        <span class="ai-enable-switch" aria-hidden="true"></span>
+        <span class="ai-enable-copy">
+          <strong>选中文本处理</strong>
+          <span>选中网页文字后，用模板发送到指定 AI 目标。</span>
+        </span>
       </label>
-      <div class="toolbar-btns">
-        <button type="button" class="btn" id="aiExportBtn">导出</button>
+      <div class="ai-toolbar-actions">
+        <button type="button" class="btn" id="loadDefaults">载入默认</button>
         <button type="button" class="btn" id="aiImportBtn">导入</button>
+        <button type="button" class="btn" id="aiExportBtn">导出</button>
         <input type="file" id="aiImportFile" accept=".json,application/json" class="hidden" />
       </div>
-      <button type="button" class="btn" id="loadDefaults">载入默认模板和目标</button>
     </div>
     <div class="ai-content">
       <div class="section">
