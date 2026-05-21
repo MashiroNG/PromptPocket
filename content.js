@@ -591,14 +591,28 @@ function getComposerFrame(editor) {
 function getGeminiComposerFrame(editor) {
   const editorRect = editor.getBoundingClientRect();
   let node = (editor.closest && editor.closest('rich-textarea')) || editor;
+  const candidates = [];
   for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
     const rect = node.getBoundingClientRect();
     if (rect.width > Math.max(320, editorRect.width + 80) &&
         rect.height >= 42 &&
-        rect.height <= 190 &&
+        rect.height <= 260 &&
         rect.bottom > window.innerHeight * 0.45) {
-      return node;
+      const hasActionButtons = !!(node.querySelectorAll && Array.from(node.querySelectorAll('button')).some(button => {
+        const buttonRect = button.getBoundingClientRect();
+        if (button.id === QUICK_LAUNCHER_ID) return false;
+        if (buttonRect.width <= 0 || buttonRect.height <= 0) return false;
+        return buttonRect.bottom > rect.bottom - 76 && buttonRect.right > rect.right - 260;
+      }));
+      candidates.push({ node, rect, hasActionButtons });
     }
+  }
+  const actionFrame = candidates
+    .filter(candidate => candidate.hasActionButtons)
+    .sort((a, b) => b.rect.height - a.rect.height || b.rect.width - a.rect.width)[0];
+  if (actionFrame) return actionFrame.node;
+  if (candidates.length > 0) {
+    return candidates.sort((a, b) => b.rect.height - a.rect.height || b.rect.bottom - a.rect.bottom)[0].node;
   }
   return (editor.closest && editor.closest('rich-textarea')) || editor;
 }
