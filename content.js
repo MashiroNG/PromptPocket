@@ -59,8 +59,33 @@ function getSelectionRect() {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
-  const rects = Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0);
-  return rects[rects.length - 1] || range.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const isUsableRect = rect => (
+    rect &&
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.right > 0 &&
+    rect.bottom > 0 &&
+    rect.left < viewportWidth &&
+    rect.top < viewportHeight
+  );
+  const focusNode = selection.focusNode;
+  const focusEl = focusNode && (focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement);
+  const focusBox = focusEl && focusEl.getBoundingClientRect ? focusEl.getBoundingClientRect() : null;
+  const intersectsFocusBox = rect => {
+    if (!isUsableRect(focusBox)) return true;
+    return rect.right >= focusBox.left - 12 &&
+      rect.left <= focusBox.right + 12 &&
+      rect.bottom >= focusBox.top - 12 &&
+      rect.top <= focusBox.bottom + 12;
+  };
+  const rects = Array.from(range.getClientRects()).filter(rect => isUsableRect(rect) && intersectsFocusBox(rect));
+  if (rects.length > 0) {
+    return rects.sort((a, b) => b.bottom - a.bottom || b.right - a.right)[0];
+  }
+  const bounds = range.getBoundingClientRect();
+  return isUsableRect(bounds) ? bounds : null;
 }
 
 function getWindowGeometry() {
