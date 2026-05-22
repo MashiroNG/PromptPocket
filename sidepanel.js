@@ -118,7 +118,10 @@ function selectFolder(id) {
 }
 
 function syncSelectedFolderFromFilter() {
-  if (!promptFolderFilterId || promptFolderFilterId === 'all') return;
+  if (!promptFolderFilterId || promptFolderFilterId === 'all') {
+    selectedFolderId = folders[0] && folders[0].id || null;
+    return;
+  }
   if (folders.some(folder => folder.id === promptFolderFilterId)) {
     selectedFolderId = promptFolderFilterId;
   }
@@ -288,6 +291,7 @@ function clearPromptFilters() {
   promptSearchQuery = '';
   promptFolderFilterId = 'all';
   promptPinnedOnly = false;
+  syncSelectedFolderFromFilter();
   const searchEl = document.getElementById('promptSearch');
   const pinnedEl = document.getElementById('promptPinnedOnly');
   if (searchEl) searchEl.value = '';
