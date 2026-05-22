@@ -117,6 +117,13 @@ function selectFolder(id) {
   render();
 }
 
+function syncSelectedFolderFromFilter() {
+  if (!promptFolderFilterId || promptFolderFilterId === 'all') return;
+  if (folders.some(folder => folder.id === promptFolderFilterId)) {
+    selectedFolderId = promptFolderFilterId;
+  }
+}
+
 function getSelectedFolder() {
   return folders.find(f => f.id === selectedFolderId);
 }
@@ -2029,9 +2036,9 @@ document.getElementById('promptFolderFilterMenu').addEventListener('click', (e) 
   const option = e.target.closest('[data-folder-id]');
   if (!option) return;
   promptFolderFilterId = option.dataset.folderId || 'all';
+  syncSelectedFolderFromFilter();
   closePromptFolderFilter();
-  renderPromptFilterOptions();
-  renderPrompts();
+  render();
 });
 document.getElementById('promptFolderFilterMenu').addEventListener('keydown', (e) => {
   handleMenuKeyboard(e, e.currentTarget, closePromptFolderFilter, document.getElementById('promptFolderFilterButton'));
