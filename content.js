@@ -594,7 +594,8 @@ function getGeminiComposerFrame(editor) {
   const candidates = [];
   for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
     const rect = node.getBoundingClientRect();
-    if (rect.width > Math.max(320, editorRect.width + 80) &&
+    const wideEnoughForComposer = rect.width >= Math.max(320, editorRect.width - 24);
+    if (wideEnoughForComposer &&
         rect.height >= 42 &&
         rect.height <= 260 &&
         rect.bottom > window.innerHeight * 0.45) {
