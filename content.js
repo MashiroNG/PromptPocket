@@ -951,6 +951,9 @@ async function loadQuickPromptItems() {
       });
     }
   }
+  if (scopeMode === 'folder') {
+    return items.sort((a, b) => a.order - b.order);
+  }
   return items.sort((a, b) => {
     const quickDiff = Date.parse(b.quickAt || '') - Date.parse(a.quickAt || '');
     if (Number.isFinite(quickDiff) && quickDiff !== 0) return quickDiff;
