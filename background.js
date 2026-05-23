@@ -9,8 +9,8 @@ const DEFAULT_FOLDER_NAME = '收件箱';
 const MAX_FOLDERS = 25;
 const MAX_PROMPTS_PER_FOLDER = 30;
 const MAX_PINNED_PROMPTS = 12;
-const SAVE_POPUP_WIDTH = 500;
-const SAVE_POPUP_HEIGHT = 610;
+const SAVE_POPUP_WIDTH = 640;
+const SAVE_POPUP_HEIGHT = 760;
 
 async function getFolders() {
   const { folders } = await chrome.storage.local.get({ folders: [] });
