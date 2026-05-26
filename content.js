@@ -532,9 +532,47 @@ function isLikelyComposerForm(form) {
   return sendButton;
 }
 
+function getButtonAccessibleText(button) {
+  if (!button) return '';
+  return [
+    button.getAttribute('aria-label') || '',
+    button.getAttribute('title') || '',
+    button.getAttribute('data-testid') || '',
+    button.getAttribute('data-state') || '',
+    button.textContent || ''
+  ].join(' ').toLowerCase();
+}
+
+function isComposerActionButton(button) {
+  const text = getButtonAccessibleText(button);
+  if (/send|submit|stop|composer-submit|send-button|voice|mic|microphone|发送|提交|停止|语音|麦克风/.test(text)) return true;
+  const rect = button && button.getBoundingClientRect ? button.getBoundingClientRect() : null;
+  return !!(rect && rect.width >= 28 && rect.width <= 56 && rect.height >= 28 && rect.height <= 56);
+}
+
+function findLikelyComposerContainer(el) {
+  if (!el || !el.parentElement) return null;
+  const editorRect = el.getBoundingClientRect();
+  let node = el.parentElement;
+  for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+    if (!node.querySelectorAll || !node.contains(el)) continue;
+    const rect = node.getBoundingClientRect();
+    if (rect.width < Math.max(260, editorRect.width) || rect.height < Math.max(42, editorRect.height)) continue;
+    if (rect.top < 0 || rect.bottom > window.innerHeight + 40) continue;
+    const buttons = Array.from(node.querySelectorAll('button')).filter(button => {
+      const buttonRect = button.getBoundingClientRect();
+      if (button.id === QUICK_LAUNCHER_ID) return false;
+      if (buttonRect.width <= 0 || buttonRect.height <= 0) return false;
+      return buttonRect.bottom > rect.bottom - 96 && buttonRect.right > rect.right - 260 && isComposerActionButton(button);
+    });
+    if (buttons.length > 0) return node;
+  }
+  return null;
+}
+
 function looksLikeChatComposer(el) {
-  if (!isChatGptConversationPage() || !isEditable(el)) return false;
-  const blocker = el.closest && el.closest('article, [data-message-author-role], [data-testid^="conversation-turn"], [role="dialog"]');
+  if (!isChatGptConversationPage() || !isEditable(el) || !isVisible(el)) return false;
+  const blocker = el.closest && el.closest('article, [data-message-author-role], [data-testid^="conversation-turn"]');
   const explicitComposerContainer = el.closest && el.closest('[data-testid="composer-input-container"]');
   if (blocker && !explicitComposerContainer) return false;
   if (el.id === 'prompt-textarea') return true;
@@ -542,9 +580,11 @@ function looksLikeChatComposer(el) {
   if (explicitComposerContainer && explicitComposerContainer.contains(el)) return true;
 
   const container = el.closest && el.closest('form');
-  if (!container || container.closest('article, [data-message-author-role], [data-testid^="conversation-turn"], [role="dialog"]')) return false;
   const rect = el.getBoundingClientRect();
-  return rect.width > 180 && rect.height > 20 && isLikelyComposerForm(container);
+  if (container && !container.closest('article, [data-message-author-role], [data-testid^="conversation-turn"]')) {
+    if (rect.width > 180 && rect.height > 20 && isLikelyComposerForm(container)) return true;
+  }
+  return rect.width > 180 && rect.height > 20 && !!findLikelyComposerContainer(el);
 }
 
 function looksLikeGeminiComposer(el) {
@@ -564,18 +604,41 @@ function looksLikeQuickComposer(el) {
 function findCurrentChatComposer() {
   const active = document.activeElement;
   if (looksLikeChatComposer(active)) return active;
+  if (looksLikeChatComposer(quickActiveEditor)) return quickActiveEditor;
   const selectors = [
     '#prompt-textarea',
     '[data-testid="composer-input"]',
     '[data-testid="composer-input-container"] [contenteditable="true"]',
     'form textarea',
-    'form [contenteditable="true"]'
+    'form [contenteditable="true"]',
+    'textarea',
+    '[contenteditable="true"]'
   ];
+  const seen = new Set();
+  const candidates = [];
   for (const selector of selectors) {
-    const el = document.querySelector(selector);
-    if (looksLikeChatComposer(el)) return el;
+    const nodes = document.querySelectorAll(selector);
+    for (const el of nodes) {
+      if (seen.has(el) || !looksLikeChatComposer(el)) continue;
+      seen.add(el);
+      candidates.push(el);
+    }
   }
-  return null;
+  if (candidates.length === 0) return null;
+  const launcher = document.getElementById(QUICK_LAUNCHER_ID);
+  const launcherRect = launcher && launcher.getBoundingClientRect();
+  return candidates.sort((a, b) => {
+    if (a === quickActiveEditor) return -1;
+    if (b === quickActiveEditor) return 1;
+    const aRect = a.getBoundingClientRect();
+    const bRect = b.getBoundingClientRect();
+    if (launcherRect) {
+      const aDistance = Math.abs(aRect.right - launcherRect.left) + Math.abs((aRect.top + aRect.bottom) / 2 - (launcherRect.top + launcherRect.bottom) / 2);
+      const bDistance = Math.abs(bRect.right - launcherRect.left) + Math.abs((bRect.top + bRect.bottom) / 2 - (launcherRect.top + launcherRect.bottom) / 2);
+      if (aDistance !== bDistance) return aDistance - bDistance;
+    }
+    return bRect.bottom - aRect.bottom;
+  })[0];
 }
 
 function findCurrentGeminiComposer() {
@@ -1197,8 +1260,12 @@ function insertPromptIntoComposer(text) {
   }
 
   try {
-    restoreComposerSelection(editor);
-    if (document.execCommand('insertText', false, text)) return;
+    const restored = restoreComposerSelection(editor);
+    if (!restored) setSelectionToEnd(editor);
+    if (document.execCommand('insertText', false, text)) {
+      dispatchEvents(editor, text);
+      return;
+    }
   } catch (e) {}
 
   try {
