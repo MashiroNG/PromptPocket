@@ -1,5 +1,7 @@
 /* Right-Click Prompt (Local) - background service worker. No auth, no cloud. */
 
+importScripts('sidepanel-logic.js');
+
 const MENU_ROOT = 'rcp_root';
 const AI_MENU_ROOT = 'ai_selection_root';
 const SAVE_SELECTION_ID = 'rcp_save_selection';
@@ -711,6 +713,22 @@ async function tryPasteInTab(tabId, text, frameId) {
   }
 }
 
+function getTabPlatform(url) {
+  try {
+    return PromptPocketLogic.getPromptPocketPlatform(new URL(url || '').hostname || '');
+  } catch (e) {
+    return '';
+  }
+}
+
+async function tryAutoPasteInTab(tabId, text, frameId, url) {
+  if (!tabId) return false;
+  if (getTabPlatform(url) === 'gemini') {
+    return sendMessageWithRetry(tabId, { action: 'injectGemini', text }, 8, 600);
+  }
+  return tryPasteInTab(tabId, text, frameId);
+}
+
 function applySelectionTemplate(template, selectedText) {
   const base = (template || '').toString();
   return base.replace(/{{\s*text\s*}}/gi, selectedText || '');
@@ -878,7 +896,7 @@ async function handlePromptCopy(promptId, text) {
   const restricted = /^(chrome|chrome-extension|devtools|edge|about|centbrowser):/i.test(url);
 
   if (autoPaste && tabId && !restricted) {
-    const pasted = await tryPasteInTab(tabId, text);
+    const pasted = await tryAutoPasteInTab(tabId, text, undefined, url);
     if (pasted) {
       showToast('已粘贴');
       return;
@@ -900,7 +918,7 @@ async function handleSelectionCommandCopy(text, tab, frameId) {
   const restricted = /^(chrome|chrome-extension|devtools|edge|about|centbrowser):/i.test(url);
 
   if (autoPaste && tabId && !restricted) {
-    const pasted = await tryPasteInTab(tabId, text, frameId);
+    const pasted = await tryAutoPasteInTab(tabId, text, frameId, url);
     if (pasted) {
       showToast('已粘贴');
       return { pasted: true };
@@ -979,7 +997,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const url = tab && tab.url || '';
       const restricted = /^(chrome|chrome-extension|devtools|edge|about|centbrowser):/i.test(url);
       if (autoPaste && tab && tab.id && !restricted) {
-        const pasted = await tryPasteInTab(tab.id, prompt.text, info.frameId);
+        const pasted = await tryAutoPasteInTab(tab.id, prompt.text, info.frameId, url);
         if (pasted) {
           showToast('已粘贴');
           return;
