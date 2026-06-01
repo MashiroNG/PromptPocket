@@ -22,6 +22,30 @@ function Assert-Command {
   }
 }
 
+function Resolve-NodeCommand {
+  $localNode = Join-Path $root '.tools\node\node.exe'
+  if (Test-Path $localNode) {
+    return $localNode
+  }
+
+  $envNode = $env:PROMPTPOCKET_NODE
+  if ($envNode -and (Test-Path $envNode)) {
+    return $envNode
+  }
+
+  $userNode = Join-Path $env:LOCALAPPDATA 'Programs\nodejs\node.exe'
+  if (Test-Path $userNode) {
+    return $userNode
+  }
+
+  $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+  if ($nodeCommand) {
+    return $nodeCommand.Source
+  }
+
+  throw 'Node.js was not found. Install Node.js, set PROMPTPOCKET_NODE, or place node.exe at .tools\node\node.exe.'
+}
+
 function Invoke-Checked {
   param(
     [string]$FilePath,
@@ -36,7 +60,7 @@ function Invoke-Checked {
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-Assert-Command node
+$node = Resolve-NodeCommand
 $gitCommand = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitCommand) {
   $fallbackGit = 'C:\Program Files\Git\cmd\git.exe'
@@ -77,6 +101,7 @@ if ($status) {
 Write-Step 'Check JavaScript syntax'
 $jsFiles = @(
   'background.js',
+  'sidepanel-logic.js',
   'content.js',
   'sidepanel-runtime.js',
   'sidepanel.js',
@@ -86,7 +111,7 @@ foreach ($file in $jsFiles) {
   if (-not (Test-Path $file)) {
     throw "Missing file: $file"
   }
-  Invoke-Checked -FilePath 'node' -Arguments @('--check', $file)
+  Invoke-Checked -FilePath $node -Arguments @('--check', $file)
 }
 
 Write-Step 'Validate Git tag'

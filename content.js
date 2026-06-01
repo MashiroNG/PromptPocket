@@ -38,7 +38,7 @@ function deactivateExtensionFeatures() {
 if (hasRuntimeContext()) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || msg.action !== 'injectGemini') return;
-    injectGeminiText(msg.text || '').then((ok) => {
+    injectTextViaAdapter('gemini', msg.text || '').then((ok) => {
       sendResponse({ success: !!ok });
     });
     return true;
@@ -455,15 +455,15 @@ window.addEventListener('resize', () => {
 });
 
 function isChatGptPage() {
-  return /(^|\.)chatgpt\.com$/i.test(location.hostname || '') || /(^|\.)chat\.openai\.com$/i.test(location.hostname || '');
+  return PromptPocketLogic.getPromptPocketPlatform(location.hostname || '') === 'chatgpt';
 }
 
 function isGeminiPage() {
-  return /(^|\.)gemini\.google\.com$/i.test(location.hostname || '');
+  return PromptPocketLogic.getPromptPocketPlatform(location.hostname || '') === 'gemini';
 }
 
 function isQuickPromptPage() {
-  return isChatGptPage() || isGeminiPage();
+  return getActiveAdapters().length > 0;
 }
 
 function pageTextMatches(selectors, pattern) {
@@ -477,21 +477,25 @@ function pageTextMatches(selectors, pattern) {
 
 function isChatGptPlanPage() {
   if (!isChatGptPage()) return false;
-  if (/\/(?:pricing|plans|upgrade|settings\/subscription)/i.test(location.pathname || '')) return true;
+  if (PromptPocketLogic.isChatGptPlanPath(location.pathname || '')) return true;
   return pageTextMatches('main h1, main h2, main h3, [role="main"] h1, [role="main"] h2, [role="main"] h3, h1, h2', /升级套餐|升级至\s*Pro|Upgrade plan|Upgrade to Pro|Plans/i);
 }
 
 function isChatGptConversationPage() {
-  if (!isChatGptPage()) return false;
-  if (isChatGptPlanPage()) return false;
-  const path = location.pathname || '/';
-  if (/^\/(?:c|g|gpts|project|projects)\//i.test(path)) return true;
-  if (path === '/' || path === '') return true;
-  return false;
+  return PromptPocketLogic.isChatGptConversationContext({
+    hostname: location.hostname || '',
+    pathname: location.pathname || '/',
+    hasPlanText: pageTextMatches('main h1, main h2, main h3, [role="main"] h1, [role="main"] h2, [role="main"] h3, h1, h2', /升级套餐|升级至\s*Pro|Upgrade plan|Upgrade to Pro|Plans/i)
+  });
 }
 
 function isQuickPromptConversationPage() {
-  return isChatGptConversationPage() || isGeminiPage();
+  const adapter = getActiveAdapter();
+  if (!adapter) return false;
+  if (adapter.name === 'gemini') {
+    return PromptPocketLogic.isGeminiConversationContext({ hostname: location.hostname || '' });
+  }
+  return true;
 }
 
 function isTextInput(el) {
@@ -505,15 +509,11 @@ function isEditable(el) {
 }
 
 function findEditableFromTarget(target) {
-  const start = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
-  if (!start || !start.closest) return null;
-  const geminiRichTextarea = start.closest('rich-textarea');
-  if (geminiRichTextarea) {
-    const geminiEditor = geminiRichTextarea.querySelector('.ql-editor[contenteditable="true"], .ql-editor, [contenteditable="true"]');
-    if (isEditable(geminiEditor)) return geminiEditor;
+  for (const adapter of getActiveAdapters()) {
+    const editable = adapter.findEditableFromTarget(target);
+    if (isEditable(editable)) return editable;
   }
-  const editable = start.closest('#prompt-textarea, [data-testid="composer-input"], textarea, input, .ql-editor, [contenteditable="true"]');
-  return isEditable(editable) ? editable : null;
+  return null;
 }
 
 function isLikelyComposerForm(form) {
@@ -570,86 +570,152 @@ function findLikelyComposerContainer(el) {
   return null;
 }
 
-function looksLikeChatComposer(el) {
-  if (!isChatGptConversationPage() || !isEditable(el) || !isVisible(el)) return false;
-  const blocker = el.closest && el.closest('article, [data-message-author-role], [data-testid^="conversation-turn"]');
-  const explicitComposerContainer = el.closest && el.closest('[data-testid="composer-input-container"]');
-  if (blocker && !explicitComposerContainer) return false;
-  if (el.id === 'prompt-textarea') return true;
-  if (el.matches && el.matches('[data-testid="composer-input"]')) return true;
-  if (explicitComposerContainer && explicitComposerContainer.contains(el)) return true;
+const PLATFORM_ADAPTERS = [
+  {
+    name: 'chatgpt',
+    isPage: isChatGptPage,
+    isConversationPage: isChatGptConversationPage,
+    findEditableFromTarget(target) {
+      const start = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
+      if (!start || !start.closest) return null;
+      const editable = start.closest('#prompt-textarea, [data-testid="composer-input"], textarea, input, [contenteditable="true"]');
+      return isEditable(editable) ? editable : null;
+    },
+    looksLikeComposer(el) {
+      if (!isChatGptConversationPage() || !isEditable(el) || !isVisible(el)) return false;
+      const blocker = el.closest && el.closest('article, [data-message-author-role], [data-testid^="conversation-turn"]');
+      const explicitComposerContainer = el.closest && el.closest('[data-testid="composer-input-container"]');
+      if (blocker && !explicitComposerContainer) return false;
+      if (el.id === 'prompt-textarea') return true;
+      if (el.matches && el.matches('[data-testid="composer-input"]')) return true;
+      if (explicitComposerContainer && explicitComposerContainer.contains(el)) return true;
 
-  const container = el.closest && el.closest('form');
-  const rect = el.getBoundingClientRect();
-  if (container && !container.closest('article, [data-message-author-role], [data-testid^="conversation-turn"]')) {
-    if (rect.width > 180 && rect.height > 20 && isLikelyComposerForm(container)) return true;
+      const container = el.closest && el.closest('form');
+      const rect = el.getBoundingClientRect();
+      if (container && !container.closest('article, [data-message-author-role], [data-testid^="conversation-turn"]')) {
+        if (rect.width > 180 && rect.height > 20 && isLikelyComposerForm(container)) return true;
+      }
+      return rect.width > 180 && rect.height > 20 && !!findLikelyComposerContainer(el);
+    },
+    findCurrentComposer() {
+      const active = document.activeElement;
+      if (this.looksLikeComposer(active)) return active;
+      if (this.looksLikeComposer(quickActiveEditor)) return quickActiveEditor;
+      const selectors = [
+        '#prompt-textarea',
+        '[data-testid="composer-input"]',
+        '[data-testid="composer-input-container"] [contenteditable="true"]',
+        'form textarea',
+        'form [contenteditable="true"]',
+        'textarea',
+        '[contenteditable="true"]'
+      ];
+      const seen = new Set();
+      const candidates = [];
+      for (const selector of selectors) {
+        const nodes = document.querySelectorAll(selector);
+        for (const el of nodes) {
+          if (seen.has(el) || !this.looksLikeComposer(el)) continue;
+          seen.add(el);
+          candidates.push(el);
+        }
+      }
+      if (candidates.length === 0) return null;
+      const launcher = document.getElementById(QUICK_LAUNCHER_ID);
+      const launcherRect = launcher && launcher.getBoundingClientRect();
+      return candidates.sort((a, b) => {
+        if (a === quickActiveEditor) return -1;
+        if (b === quickActiveEditor) return 1;
+        const aRect = a.getBoundingClientRect();
+        const bRect = b.getBoundingClientRect();
+        if (launcherRect) {
+          const aDistance = Math.abs(aRect.right - launcherRect.left) + Math.abs((aRect.top + aRect.bottom) / 2 - (launcherRect.top + launcherRect.bottom) / 2);
+          const bDistance = Math.abs(bRect.right - launcherRect.left) + Math.abs((bRect.top + bRect.bottom) / 2 - (launcherRect.top + launcherRect.bottom) / 2);
+          if (aDistance !== bDistance) return aDistance - bDistance;
+        }
+        return bRect.bottom - aRect.bottom;
+      })[0];
+    },
+    getComposerFrame(editor) {
+      if (!editor || !editor.closest) return editor;
+      return editor.closest('[data-testid="composer-input-container"], form') || editor;
+    },
+    getActionCenterY(editor) {
+      return getActionCenterYFromFrame(this.getComposerFrame(editor));
+    },
+    insertText(editor, text) {
+      if (editor.tagName === 'TEXTAREA' || isTextInput(editor)) return insertNativeText(editor, text);
+      return insertContentEditableText(editor, text);
+    }
+  },
+  {
+    name: 'gemini',
+    isPage: isGeminiPage,
+    isConversationPage: isGeminiPage,
+    findEditableFromTarget(target) {
+      const start = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
+      if (!start || !start.closest) return null;
+      const richTextarea = start.closest('rich-textarea');
+      if (richTextarea) {
+        const editor = richTextarea.querySelector('.ql-editor[contenteditable="true"], .ql-editor, [contenteditable="true"]');
+        if (isEditable(editor)) return editor;
+      }
+      const editable = start.closest('.ql-editor, [contenteditable="true"], textarea, input');
+      return isEditable(editable) ? editable : null;
+    },
+    looksLikeComposer(el) {
+      if (!isGeminiPage() || !isEditable(el) || !isVisible(el)) return false;
+      if (el.closest && el.closest('[role="dialog"], message-content, .model-response, .response-container')) return false;
+      const richTextarea = el.closest && el.closest('rich-textarea');
+      if (richTextarea && richTextarea.contains(el)) return true;
+      if (el.matches && el.matches('.ql-editor[contenteditable="true"], .ql-editor')) return true;
+      const rect = el.getBoundingClientRect();
+      return !!(el.isContentEditable && rect.width > 180 && rect.height > 20 && el.getAttribute('role') === 'textbox');
+    },
+    findCurrentComposer() {
+      const active = document.activeElement;
+      if (this.looksLikeComposer(active)) return active;
+      return findGeminiEditors().find(editor => this.looksLikeComposer(editor)) || null;
+    },
+    getComposerFrame(editor) {
+      return getGeminiComposerFrame(editor);
+    },
+    getActionCenterY(editor) {
+      return getActionCenterYFromFrame(this.getComposerFrame(editor));
+    },
+    insertText(editor, text) {
+      if (editor.tagName === 'TEXTAREA' || isTextInput(editor)) return insertNativeText(editor, text);
+      return insertGeminiComposerText(editor, text);
+    },
+    injectText(editor, text) {
+      return replaceGeminiComposerText(editor, text);
+    }
   }
-  return rect.width > 180 && rect.height > 20 && !!findLikelyComposerContainer(el);
+];
+
+function getActiveAdapters() {
+  return PLATFORM_ADAPTERS.filter(adapter => adapter.isPage());
 }
 
-function looksLikeGeminiComposer(el) {
-  if (!isGeminiPage() || !isEditable(el) || !isVisible(el)) return false;
-  if (el.closest && el.closest('[role="dialog"], message-content, .model-response, .response-container')) return false;
-  const richTextarea = el.closest && el.closest('rich-textarea');
-  if (richTextarea && richTextarea.contains(el)) return true;
-  if (el.matches && el.matches('.ql-editor[contenteditable="true"], .ql-editor')) return true;
-  const rect = el.getBoundingClientRect();
-  return !!(el.isContentEditable && rect.width > 180 && rect.height > 20 && el.getAttribute('role') === 'textbox');
+function getActiveAdapter() {
+  return PLATFORM_ADAPTERS.find(adapter => adapter.isConversationPage()) || null;
+}
+
+function getPlatformAdapter(name) {
+  return PLATFORM_ADAPTERS.find(adapter => adapter.name === name) || null;
+}
+
+function getAdapterForEditor(editor) {
+  return PLATFORM_ADAPTERS.find(adapter => adapter.looksLikeComposer(editor)) || null;
 }
 
 function looksLikeQuickComposer(el) {
-  return looksLikeChatComposer(el) || looksLikeGeminiComposer(el);
-}
-
-function findCurrentChatComposer() {
-  const active = document.activeElement;
-  if (looksLikeChatComposer(active)) return active;
-  if (looksLikeChatComposer(quickActiveEditor)) return quickActiveEditor;
-  const selectors = [
-    '#prompt-textarea',
-    '[data-testid="composer-input"]',
-    '[data-testid="composer-input-container"] [contenteditable="true"]',
-    'form textarea',
-    'form [contenteditable="true"]',
-    'textarea',
-    '[contenteditable="true"]'
-  ];
-  const seen = new Set();
-  const candidates = [];
-  for (const selector of selectors) {
-    const nodes = document.querySelectorAll(selector);
-    for (const el of nodes) {
-      if (seen.has(el) || !looksLikeChatComposer(el)) continue;
-      seen.add(el);
-      candidates.push(el);
-    }
-  }
-  if (candidates.length === 0) return null;
-  const launcher = document.getElementById(QUICK_LAUNCHER_ID);
-  const launcherRect = launcher && launcher.getBoundingClientRect();
-  return candidates.sort((a, b) => {
-    if (a === quickActiveEditor) return -1;
-    if (b === quickActiveEditor) return 1;
-    const aRect = a.getBoundingClientRect();
-    const bRect = b.getBoundingClientRect();
-    if (launcherRect) {
-      const aDistance = Math.abs(aRect.right - launcherRect.left) + Math.abs((aRect.top + aRect.bottom) / 2 - (launcherRect.top + launcherRect.bottom) / 2);
-      const bDistance = Math.abs(bRect.right - launcherRect.left) + Math.abs((bRect.top + bRect.bottom) / 2 - (launcherRect.top + launcherRect.bottom) / 2);
-      if (aDistance !== bDistance) return aDistance - bDistance;
-    }
-    return bRect.bottom - aRect.bottom;
-  })[0];
-}
-
-function findCurrentGeminiComposer() {
-  const active = document.activeElement;
-  if (looksLikeGeminiComposer(active)) return active;
-  const editor = findGeminiEditor();
-  return looksLikeGeminiComposer(editor) ? editor : null;
+  return !!getAdapterForEditor(el);
 }
 
 function findCurrentQuickComposer() {
-  return findCurrentChatComposer() || findCurrentGeminiComposer();
+  const adapter = getActiveAdapter();
+  return adapter ? adapter.findCurrentComposer() : null;
 }
 
 function ensureQuickLauncherForCurrentComposer() {
@@ -662,18 +728,16 @@ function ensureQuickLauncherForCurrentComposer() {
   }
 
   const editor = findCurrentQuickComposer();
-  if (!editor) return;
-  const shouldShow = document.activeElement === editor ||
-    (editor.contains && editor.contains(document.activeElement)) ||
-    quickActiveEditor === editor ||
-    !launcher;
-  if (shouldShow) scheduleQuickLauncherPosition(editor);
+  if (!editor) {
+    if (!panel) removeQuickPromptUi();
+    return;
+  }
+  scheduleQuickLauncherPosition(editor);
 }
 
 function getComposerFrame(editor) {
-  if (!editor || !editor.closest) return editor;
-  if (looksLikeGeminiComposer(editor)) return getGeminiComposerFrame(editor);
-  return editor.closest('[data-testid="composer-input-container"], form') || editor;
+  const adapter = getAdapterForEditor(editor);
+  return adapter ? adapter.getComposerFrame(editor) : editor;
 }
 
 function getGeminiComposerFrame(editor) {
@@ -698,7 +762,12 @@ function getGeminiComposerFrame(editor) {
   }
   const actionFrame = candidates
     .filter(candidate => candidate.hasActionButtons)
-    .sort((a, b) => b.rect.height - a.rect.height || b.rect.width - a.rect.width)[0];
+    .sort((a, b) => {
+      const aBottomDistance = Math.abs(window.innerHeight - a.rect.bottom);
+      const bBottomDistance = Math.abs(window.innerHeight - b.rect.bottom);
+      if (aBottomDistance !== bBottomDistance) return aBottomDistance - bBottomDistance;
+      return b.rect.width - a.rect.width;
+    })[0];
   if (actionFrame) return actionFrame.node;
   if (candidates.length > 0) {
     return candidates.sort((a, b) => b.rect.height - a.rect.height || b.rect.bottom - a.rect.bottom)[0].node;
@@ -711,8 +780,7 @@ function getComposerRect(editor) {
   return target ? target.getBoundingClientRect() : null;
 }
 
-function getComposerActionCenterY(editor) {
-  const frame = getComposerFrame(editor);
+function getActionCenterYFromFrame(frame) {
   if (!frame || !frame.querySelectorAll) return null;
   const frameRect = frame.getBoundingClientRect();
   const candidates = Array.from(frame.querySelectorAll('button')).map(button => {
@@ -724,15 +792,28 @@ function getComposerActionCenterY(editor) {
     if (rect.bottom < frameRect.bottom - 76) return false;
     if (rect.right < frameRect.right - 220) return false;
     return true;
-  }).sort((a, b) => b.rect.right - a.rect.right);
+  }).sort((a, b) => {
+    const aBottomDistance = Math.abs(frameRect.bottom - a.rect.bottom);
+    const bBottomDistance = Math.abs(frameRect.bottom - b.rect.bottom);
+    if (aBottomDistance !== bBottomDistance) return aBottomDistance - bBottomDistance;
+    return b.rect.right - a.rect.right;
+  });
   if (candidates.length === 0) return null;
   const rect = candidates[0].rect;
   return rect.top + rect.height / 2;
 }
 
+function getComposerActionCenterY(editor) {
+  const adapter = getAdapterForEditor(editor);
+  return adapter ? adapter.getActionCenterY(editor) : null;
+}
+
 function scheduleQuickLauncherPosition(editor) {
   const targetEditor = editor || quickActiveEditor;
-  if (!targetEditor || !looksLikeQuickComposer(targetEditor)) return;
+  if (!targetEditor || !targetEditor.isConnected || !looksLikeQuickComposer(targetEditor)) {
+    removeQuickPromptUi();
+    return;
+  }
   if (quickPositionFrame) cancelAnimationFrame(quickPositionFrame);
   quickPositionFrame = requestAnimationFrame(() => {
     quickPositionFrame = null;
@@ -974,7 +1055,7 @@ function ensureQuickLauncher() {
 }
 
 function positionQuickLauncher(editor) {
-  if (!hasRuntimeContext() || !looksLikeQuickComposer(editor)) {
+  if (!hasRuntimeContext() || !editor || !editor.isConnected || !looksLikeQuickComposer(editor)) {
     removeQuickPromptUi();
     return;
   }
@@ -987,19 +1068,19 @@ function positionQuickLauncher(editor) {
   const button = ensureQuickLauncher();
   button.style.display = 'inline-flex';
   const buttonRect = button.getBoundingClientRect();
-  const margin = 10;
-  const gap = 16;
-  const bottomInset = 15;
-  const hasRightRoom = rect.right + gap + buttonRect.width <= window.innerWidth - margin;
-  const targetLeft = hasRightRoom ? rect.right + gap : rect.right - buttonRect.width - 14;
-  const left = Math.max(margin, Math.min(targetLeft, window.innerWidth - buttonRect.width - margin));
   const actionCenterY = getComposerActionCenterY(editor);
-  const targetTop = Number.isFinite(actionCenterY)
-    ? actionCenterY - buttonRect.height / 2
-    : rect.bottom - buttonRect.height - bottomInset;
-  const top = Math.max(margin, Math.min(targetTop, window.innerHeight - buttonRect.height - margin));
-  button.style.left = left + 'px';
-  button.style.top = top + 'px';
+  const position = PromptPocketLogic.computeQuickLauncherPosition({
+    composerRect: rect,
+    buttonRect,
+    viewport: {
+      width: window.innerWidth || document.documentElement.clientWidth || 0,
+      height: window.innerHeight || document.documentElement.clientHeight || 0
+    },
+    actionCenterY
+  });
+  if (!position) return;
+  button.style.left = position.left + 'px';
+  button.style.top = position.top + 'px';
 
   const panel = document.getElementById(QUICK_PANEL_ID);
   if (panel) positionQuickPanel();
@@ -1016,44 +1097,7 @@ async function loadQuickPromptItems() {
     quickPromptScopeMode: 'all',
     quickPromptScopeFolderId: ''
   });
-  const scopeMode = ['all', 'pinned', 'folder'].includes(quickPromptScopeMode) ? quickPromptScopeMode : 'all';
-  const items = [];
-  const safeFolders = Array.isArray(folders) ? folders : [];
-  for (let folderIndex = 0; folderIndex < safeFolders.length; folderIndex += 1) {
-    const folder = safeFolders[folderIndex];
-    if (scopeMode === 'folder' && folder.id !== quickPromptScopeFolderId) continue;
-    const prompts = folder.prompts || [];
-    for (let promptIndex = 0; promptIndex < prompts.length; promptIndex += 1) {
-      const prompt = prompts[promptIndex];
-      if (!prompt || !prompt.text) continue;
-      if (scopeMode === 'pinned' && !prompt.pinned) continue;
-      items.push({
-        id: prompt.id,
-        title: prompt.title || '未命名提示词',
-        text: prompt.text || '',
-        folderId: folder.id || '',
-        folder: folder.name || '未命名文件夹',
-        pinned: !!prompt.pinned,
-        pinnedAt: prompt.pinnedAt || prompt.timestamp || '',
-        quickAt: prompt.quickAt || '',
-        order: folderIndex * 100000 + promptIndex
-      });
-    }
-  }
-  if (scopeMode === 'folder') {
-    return items.sort((a, b) => a.order - b.order);
-  }
-  return items.sort((a, b) => {
-    const quickDiff = Date.parse(b.quickAt || '') - Date.parse(a.quickAt || '');
-    if (Number.isFinite(quickDiff) && quickDiff !== 0) return quickDiff;
-    if (!!a.quickAt !== !!b.quickAt) return Number(!!b.quickAt) - Number(!!a.quickAt);
-    if (a.pinned !== b.pinned) return Number(b.pinned) - Number(a.pinned);
-    if (a.pinned && b.pinned) {
-      const diff = Date.parse(b.pinnedAt || '') - Date.parse(a.pinnedAt || '');
-      if (Number.isFinite(diff) && diff !== 0) return diff;
-    }
-    return a.order - b.order;
-  });
+  return PromptPocketLogic.getQuickPromptItems(folders, quickPromptScopeMode, quickPromptScopeFolderId);
 }
 
 function ensureQuickPanel() {
@@ -1243,45 +1287,88 @@ function setNativeValue(el, next) {
   else el.value = next;
 }
 
-function insertPromptIntoComposer(text) {
-  const editor = looksLikeQuickComposer(quickActiveEditor) ? quickActiveEditor : findCurrentQuickComposer();
-  if (!editor) return;
-  editor.focus();
+function insertNativeText(editor, text) {
+  const start = editor.selectionStart || 0;
+  const end = editor.selectionEnd || 0;
+  const value = editor.value || '';
+  const next = value.slice(0, start) + text + value.slice(end);
+  setNativeValue(editor, next);
+  editor.selectionStart = editor.selectionEnd = start + text.length;
+  editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
+  return true;
+}
 
-  if (editor.tagName === 'TEXTAREA' || isTextInput(editor)) {
-    const start = editor.selectionStart || 0;
-    const end = editor.selectionEnd || 0;
-    const value = editor.value || '';
-    const next = value.slice(0, start) + text + value.slice(end);
-    setNativeValue(editor, next);
-    editor.selectionStart = editor.selectionEnd = start + text.length;
-    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
-    return;
-  }
-
+function tryExecCommandInsert(editor, text) {
   try {
     const restored = restoreComposerSelection(editor);
     if (!restored) setSelectionToEnd(editor);
     if (document.execCommand('insertText', false, text)) {
       dispatchEvents(editor, text);
-      return;
+      return true;
     }
+  } catch (e) {}
+  return false;
+}
+
+function insertContentEditableText(editor, text) {
+  if (tryExecCommandInsert(editor, text)) return true;
+  try {
+    editor.textContent = (editor.textContent || '') + text;
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
+    return true;
+  } catch (e) {}
+  return false;
+}
+
+function insertGeminiComposerText(editor, text) {
+  if (tryExecCommandInsert(editor, text)) return true;
+  try {
+    const current = editor.textContent || '';
+    editor.innerHTML = '';
+    const p = document.createElement('p');
+    p.textContent = current + text;
+    editor.appendChild(p);
+    setSelectionToEnd(editor);
+    dispatchEvents(editor, text);
+    return true;
   } catch (e) {}
 
   try {
-    if (looksLikeGeminiComposer(editor)) {
-      const current = editor.textContent || '';
-      editor.innerHTML = '';
-      const p = document.createElement('p');
-      p.textContent = current + text;
-      editor.appendChild(p);
-      setSelectionToEnd(editor);
-      dispatchEvents(editor, text);
-      return;
-    }
     editor.textContent = (editor.textContent || '') + text;
-    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
+    setSelectionToEnd(editor);
+    dispatchEvents(editor, text);
+    return true;
   } catch (e) {}
+  return false;
+}
+
+function replaceGeminiComposerText(editor, text) {
+  try {
+    editor.innerHTML = '';
+    const p = document.createElement('p');
+    p.textContent = text;
+    editor.appendChild(p);
+    setSelectionToEnd(editor);
+    dispatchEvents(editor, text);
+    return true;
+  } catch (e) {}
+
+  try {
+    editor.textContent = text;
+    setSelectionToEnd(editor);
+    dispatchEvents(editor, text);
+    return true;
+  } catch (e) {}
+
+  return tryExecCommandInsert(editor, text);
+}
+
+function insertPromptIntoComposer(text) {
+  const editor = looksLikeQuickComposer(quickActiveEditor) ? quickActiveEditor : findCurrentQuickComposer();
+  const adapter = getAdapterForEditor(editor);
+  if (!editor || !adapter) return;
+  editor.focus();
+  adapter.insertText(editor, text);
 }
 
 document.addEventListener('focusin', event => {
@@ -1360,6 +1447,10 @@ function setSelectionToEnd(el) {
 }
 
 function findGeminiEditor() {
+  return findGeminiEditors()[0] || null;
+}
+
+function findGeminiEditors() {
   const selectors = [
     'rich-textarea .ql-editor[contenteditable="true"]',
     'rich-textarea .ql-editor',
@@ -1368,22 +1459,27 @@ function findGeminiEditor() {
     'div[contenteditable="true"][role="textbox"]',
     'div[contenteditable="true"]'
   ];
+  const seen = new Set();
+  const editors = [];
   for (const sel of selectors) {
     const nodes = document.querySelectorAll(sel);
     for (const node of nodes) {
-      if (node && isVisible(node)) return node;
+      if (node && !seen.has(node) && isVisible(node)) {
+        seen.add(node);
+        editors.push(node);
+      }
     }
   }
-  return null;
+  return editors;
 }
 
-async function waitForEditor(timeoutMs) {
+async function waitForComposer(adapter, timeoutMs) {
   const start = Date.now();
-  let editor = findGeminiEditor();
+  let editor = adapter && adapter.findCurrentComposer();
   if (editor) return editor;
   return new Promise((resolve) => {
     const observer = new MutationObserver(() => {
-      editor = findGeminiEditor();
+      editor = adapter && adapter.findCurrentComposer();
       if (editor) {
         observer.disconnect();
         resolve(editor);
@@ -1395,13 +1491,19 @@ async function waitForEditor(timeoutMs) {
     observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
     setTimeout(() => {
       observer.disconnect();
-      resolve(findGeminiEditor());
+      resolve(adapter && adapter.findCurrentComposer());
     }, timeoutMs);
   });
 }
 
 async function injectGeminiText(text) {
-  const editor = await waitForEditor(15000);
+  return injectTextViaAdapter('gemini', text);
+}
+
+async function injectTextViaAdapter(adapterName, text) {
+  const adapter = getPlatformAdapter(adapterName);
+  if (!adapter) return false;
+  const editor = await waitForComposer(adapter, 15000);
   if (!editor) return false;
 
   try {
@@ -1409,27 +1511,6 @@ async function injectGeminiText(text) {
     editor.click();
   } catch (e) {}
 
-  // Quill editor expects content within <p>
-  try {
-    editor.innerHTML = '';
-    const p = document.createElement('p');
-    p.textContent = text;
-    editor.appendChild(p);
-    setSelectionToEnd(editor);
-    dispatchEvents(editor, text);
-    return true;
-  } catch (e) {}
-
-  try {
-    editor.textContent = text;
-    setSelectionToEnd(editor);
-    dispatchEvents(editor, text);
-    return true;
-  } catch (e) {}
-
-  try {
-    if (document.execCommand('insertText', false, text)) return true;
-  } catch (e) {}
-
-  return false;
+  if (adapter.injectText) return adapter.injectText(editor, text);
+  return adapter.insertText(editor, text);
 }

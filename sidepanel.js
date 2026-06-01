@@ -19,6 +19,7 @@ let aiOnSelectionEnabled = true;
 let sidepanelTheme = 'dark';
 const DEFAULT_FOLDER_NAME = '收件箱';
 const QUICK_SCOPE_MODES = new Set(['all', 'pinned', 'folder']);
+const promptPocketLogic = globalThis.PromptPocketLogic;
 
 async function closeSidePanelFromShortcut() {
   if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.close === 'function') {
@@ -54,7 +55,9 @@ async function closeSidePanelFromShortcut() {
 
 async function loadFolders() {
   const { folders: f } = await chrome.storage.local.get({ folders: [] });
-  folders = Array.isArray(f) ? f : [];
+  const normalized = sanitizeFolders(Array.isArray(f) ? f : []);
+  folders = normalized.folders;
+  if (normalized.changed) await saveFolders();
   if (folders.length === 0) {
     folders = [{ id: uuid(), name: DEFAULT_FOLDER_NAME, prompts: [] }];
     await saveFolders();
@@ -78,8 +81,10 @@ async function loadAiConfig() {
     selectionPrompts: []
   });
   aiOnSelectionEnabled = enabled !== false;
-  aiTargets = Array.isArray(targets) ? targets : [];
-  selectionPrompts = Array.isArray(prompts) ? prompts : [];
+  const normalized = sanitizeAiConfig(Array.isArray(targets) ? targets : [], Array.isArray(prompts) ? prompts : []);
+  aiTargets = normalized.aiTargets;
+  selectionPrompts = normalized.selectionPrompts;
+  if (normalized.changed) await saveAiConfig();
   renderAiTab();
 }
 
@@ -132,27 +137,19 @@ function getSelectedFolder() {
 }
 
 function normalizeSearch(s) {
-  return String(s || '').trim().toLowerCase();
+  return promptPocketLogic.normalizeSearch(s);
 }
 
 function getSearchTokens() {
-  return normalizeSearch(promptSearchQuery).split(/\s+/).filter(Boolean);
+  return promptPocketLogic.getSearchTokens(promptSearchQuery);
 }
 
 function promptMatchesSearch(prompt, folder, tokens, pinnedOnly) {
-  if (pinnedOnly && !prompt.pinned) return false;
-  if (tokens.length === 0) return true;
-  const haystack = normalizeSearch([
-    prompt.title || '',
-    prompt.text || '',
-    folder && folder.name || ''
-  ].join(' '));
-  return tokens.every(token => haystack.includes(token));
+  return promptPocketLogic.promptMatchesSearch(prompt, folder, tokens, pinnedOnly);
 }
 
 function getFilteredFolders() {
-  if (!promptFolderFilterId || promptFolderFilterId === 'all') return folders;
-  return folders.filter(folder => folder.id === promptFolderFilterId);
+  return promptPocketLogic.getFilteredFolders(folders, promptFolderFilterId);
 }
 
 function getPromptLocation(promptId, folderId) {
@@ -166,15 +163,12 @@ function getPromptLocation(promptId, folderId) {
 }
 
 function getPromptSearchResults(tokens) {
-  const results = [];
-  getFilteredFolders().forEach((folder) => {
-    (folder.prompts || []).forEach((prompt) => {
-      if (promptMatchesSearch(prompt, folder, tokens, promptPinnedOnly)) {
-        results.push({ folder, prompt });
-      }
-    });
+  return promptPocketLogic.getPromptSearchResults({
+    folders,
+    folderFilterId: promptFolderFilterId,
+    tokens,
+    pinnedOnly: promptPinnedOnly
   });
-  return results;
 }
 
 function escapeRegExp(value) {
@@ -220,6 +214,7 @@ function createPromptCard(prompt, folder, showFolderName, tokens = [], index = 0
   card.draggable = true;
   card.style.setProperty('--item-index', Math.min(index, 8));
   const previewText = getPromptPreviewText(prompt.text || '', tokens);
+  const promptDataId = getDataId(prompt.id);
   card.innerHTML = `
     <div class="prompt-card-head">
       <div class="title">${highlightMatches(prompt.title || '未命名提示词', tokens)}</div>
@@ -230,13 +225,13 @@ function createPromptCard(prompt, folder, showFolderName, tokens = [], index = 0
     ${showFolderName ? `<div class="folder-name">${highlightMatches(folder.name || '未命名文件夹', tokens)}</div>` : ''}
     <div class="text">${highlightMatches(previewText, tokens)}</div>
     <div class="actions compact-actions">
-      <button type="button" class="btn primary-action" data-action="use" data-id="${prompt.id}">使用</button>
-      <button type="button" class="btn" data-action="edit" data-id="${prompt.id}">编辑</button>
+      <button type="button" class="btn primary-action" data-action="use" data-id="${promptDataId}">使用</button>
+      <button type="button" class="btn" data-action="edit" data-id="${promptDataId}">编辑</button>
       <div class="more-wrap">
-        <button type="button" class="btn more-action" data-action="more" data-id="${prompt.id}" aria-label="更多操作" title="更多操作" aria-haspopup="menu" aria-expanded="false">⋯</button>
+        <button type="button" class="btn more-action" data-action="more" data-id="${promptDataId}" aria-label="更多操作" title="更多操作" aria-haspopup="menu" aria-expanded="false">⋯</button>
         <div class="card-more-menu" role="menu">
-          <button type="button" data-action="copy" data-id="${prompt.id}" role="menuitem">复制</button>
-          <button type="button" data-action="pin" data-id="${prompt.id}" role="menuitem">${prompt.pinned ? '取消置顶' : '置顶'}</button>
+          <button type="button" data-action="copy" data-id="${promptDataId}" role="menuitem">复制</button>
+          <button type="button" data-action="pin" data-id="${promptDataId}" role="menuitem">${prompt.pinned ? '取消置顶' : '置顶'}</button>
         </div>
       </div>
     </div>
@@ -556,6 +551,24 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function isSafeId(value) {
+  return promptPocketLogic.isSafeId(value);
+}
+
+function makeSafeId(value, usedIds = new Set()) {
+  return promptPocketLogic.makeSafeId(value, usedIds, uuid);
+}
+
+function getDataId(value) {
+  return escapeHtml(String(value || ''));
+}
+
+function findActionButton(action, id) {
+  const targetId = String(id || '');
+  return Array.from(document.querySelectorAll('button[data-action="' + action + '"][data-id]'))
+    .find(button => button.dataset.id === targetId);
+}
+
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 3 | 8);
@@ -584,7 +597,7 @@ async function copyPrompt(promptId) {
   if (!location) return;
   try {
     await navigator.clipboard.writeText(location.prompt.text || '');
-    const btn = document.querySelector(`button[data-action="copy"][data-id="${promptId}"]`);
+    const btn = findActionButton('copy', promptId);
     if (btn) { btn.textContent = '已复制'; setTimeout(() => { btn.textContent = '复制'; }, 1500); }
   } catch (e) {
     console.error(e);
@@ -595,7 +608,7 @@ async function usePrompt(promptId) {
   const location = getPromptLocation(promptId);
   if (!location) return;
   chrome.runtime.sendMessage({ action: 'usePrompt', promptId, text: location.prompt.text || '' }, (response) => {
-    const btn = document.querySelector(`button[data-action="use"][data-id="${promptId}"]`);
+    const btn = findActionButton('use', promptId);
     if (!btn) return;
     const previous = btn.textContent;
     btn.textContent = response && response.success ? '已使用' : '失败';
@@ -611,8 +624,7 @@ function togglePromptPinned(promptId) {
 }
 
 function getPinnedTime(prompt) {
-  const time = Date.parse(prompt && (prompt.pinnedAt || prompt.timestamp || ''));
-  return Number.isFinite(time) ? time : 0;
+  return promptPocketLogic.getPinnedTime(prompt);
 }
 
 function getPinnedPromptEntries() {
@@ -626,35 +638,11 @@ function getPinnedPromptEntries() {
 }
 
 function getQuickTime(prompt) {
-  const time = Date.parse(prompt && (prompt.quickAt || ''));
-  return Number.isFinite(time) ? time : 0;
+  return promptPocketLogic.getQuickTime(prompt);
 }
 
 function getQuickPromptEntries() {
-  const entries = [];
-  folders.forEach((folder, folderIndex) => {
-    (folder.prompts || []).forEach((prompt, promptIndex) => {
-      if (!prompt || !prompt.text) return;
-      entries.push({
-        folder,
-        prompt,
-        fallbackOrder: folderIndex * 100000 + promptIndex
-      });
-    });
-  });
-  return entries.sort((a, b) => {
-    const quickDiff = getQuickTime(b.prompt) - getQuickTime(a.prompt);
-    if (quickDiff !== 0) return quickDiff;
-    const aHasQuick = !!a.prompt.quickAt;
-    const bHasQuick = !!b.prompt.quickAt;
-    if (aHasQuick !== bHasQuick) return Number(bHasQuick) - Number(aHasQuick);
-    if (a.prompt.pinned !== b.prompt.pinned) return Number(b.prompt.pinned) - Number(a.prompt.pinned);
-    if (a.prompt.pinned && b.prompt.pinned) {
-      const pinnedDiff = getPinnedTime(b.prompt) - getPinnedTime(a.prompt);
-      if (pinnedDiff !== 0) return pinnedDiff;
-    }
-    return a.fallbackOrder - b.fallbackOrder;
-  });
+  return promptPocketLogic.getQuickPromptEntries(folders);
 }
 
 function openPinnedManager() {
@@ -704,6 +692,7 @@ function renderPinnedManager() {
     item.dataset.id = prompt.id;
     item.draggable = true;
     item.style.setProperty('--item-index', Math.min(index, 8));
+    const promptDataId = getDataId(prompt.id);
     item.innerHTML = `
       <span class="pinned-rank">${index + 1}</span>
       <span class="pinned-info">
@@ -711,9 +700,9 @@ function renderPinnedManager() {
         <span class="pinned-meta">${escapeHtml(folder.name || '未命名文件夹')}</span>
       </span>
       <span class="manager-actions">
-        <button type="button" class="btn ghost sort-btn" data-action="move-pinned-up" data-id="${prompt.id}" title="上移" aria-label="上移"${isFirst ? ' disabled' : ''}>↑</button>
-        <button type="button" class="btn ghost sort-btn" data-action="move-pinned-down" data-id="${prompt.id}" title="下移" aria-label="下移"${isLast ? ' disabled' : ''}>↓</button>
-        <button type="button" class="btn ghost" data-action="unpin-pinned" data-id="${prompt.id}">取消</button>
+        <button type="button" class="btn ghost sort-btn" data-action="move-pinned-up" data-id="${promptDataId}" title="上移" aria-label="上移"${isFirst ? ' disabled' : ''}>↑</button>
+        <button type="button" class="btn ghost sort-btn" data-action="move-pinned-down" data-id="${promptDataId}" title="下移" aria-label="下移"${isLast ? ' disabled' : ''}>↓</button>
+        <button type="button" class="btn ghost" data-action="unpin-pinned" data-id="${promptDataId}">取消</button>
       </span>
     `;
     item.addEventListener('dragstart', (e) => onPinnedManagerDragStart(e, prompt.id));
@@ -745,6 +734,7 @@ function renderQuickManager() {
     item.dataset.id = prompt.id;
     item.draggable = true;
     item.style.setProperty('--item-index', Math.min(index, 8));
+    const promptDataId = getDataId(prompt.id);
     item.innerHTML = `
       <span class="pinned-rank">${index + 1}</span>
       <span class="pinned-info">
@@ -752,9 +742,9 @@ function renderQuickManager() {
         <span class="pinned-meta">${escapeHtml(folder.name || '未命名文件夹')}</span>
       </span>
       <span class="manager-actions">
-        <button type="button" class="btn ghost sort-btn" data-action="move-quick-up" data-id="${prompt.id}" title="上移" aria-label="上移"${isFirst ? ' disabled' : ''}>↑</button>
-        <button type="button" class="btn ghost sort-btn" data-action="move-quick-down" data-id="${prompt.id}" title="下移" aria-label="下移"${isLast ? ' disabled' : ''}>↓</button>
-        <button type="button" class="btn ghost" data-action="edit-quick" data-id="${prompt.id}">编辑</button>
+        <button type="button" class="btn ghost sort-btn" data-action="move-quick-up" data-id="${promptDataId}" title="上移" aria-label="上移"${isFirst ? ' disabled' : ''}>↑</button>
+        <button type="button" class="btn ghost sort-btn" data-action="move-quick-down" data-id="${promptDataId}" title="下移" aria-label="下移"${isLast ? ' disabled' : ''}>↓</button>
+        <button type="button" class="btn ghost" data-action="edit-quick" data-id="${promptDataId}">编辑</button>
       </span>
     `;
     item.addEventListener('dragstart', (e) => onQuickManagerDragStart(e, prompt.id));
@@ -1075,6 +1065,7 @@ function renderAiTargets() {
     card.className = 'list-item ai-target-card';
     card.dataset.id = t.id;
     card.style.setProperty('--item-index', Math.min(index, 8));
+    const targetDataId = getDataId(t.id);
     const queryLabel = (t.queryParam === '' || t.queryParam == null) ? '—' : (t.queryParam || 'q=');
     const hostLabel = (() => {
       try {
@@ -1089,7 +1080,7 @@ function renderAiTargets() {
           <div class="title">${escapeHtml(t.name || 'AI')}</div>
           <div class="meta">${escapeHtml(hostLabel)}</div>
         </div>
-        <button type="button" class="btn" data-action="edit-target" data-id="${t.id}">编辑</button>
+        <button type="button" class="btn" data-action="edit-target" data-id="${targetDataId}">编辑</button>
       </div>
       <div class="ai-card-tags">
         <span>${t.usePasteFallback ? '粘贴模式' : 'URL 参数'}</span>
@@ -1117,6 +1108,7 @@ function renderSelectionPrompts() {
     card.dataset.id = p.id;
     card.draggable = true;
     card.style.setProperty('--item-index', Math.min(index, 8));
+    const promptDataId = getDataId(p.id);
     const preview = (p.template || '').slice(0, 120);
     card.innerHTML = `
       <div class="ai-card-main">
@@ -1124,7 +1116,7 @@ function renderSelectionPrompts() {
           <div class="title">${escapeHtml(p.name || '未命名指令')}</div>
           <div class="meta">右键选中文字时使用</div>
         </div>
-        <button type="button" class="btn" data-action="edit-selection" data-id="${p.id}">编辑</button>
+        <button type="button" class="btn" data-action="edit-selection" data-id="${promptDataId}">编辑</button>
       </div>
       <div class="meta ai-template-preview">${escapeHtml(preview)}${(p.template || '').length > 120 ? '…' : ''}</div>
     `;
@@ -1427,60 +1419,28 @@ function backupBeforeCleanup() {
   downloadJson(folders, 'PromptPocket-清理前备份-' + formatBackupTime() + '.json');
 }
 
+function normalizePromptForStorage(prompt, usedPromptIds) {
+  return promptPocketLogic.normalizePromptForStorage(prompt, usedPromptIds, uuid);
+}
+
+function sanitizeFolders(folderList) {
+  return promptPocketLogic.sanitizeFolders(folderList, uuid);
+}
+
 function normalizeImportedFolders(data) {
-  if (!Array.isArray(data)) {
-    throw new Error('格式无效：需要文件夹数组 JSON。');
-  }
-  return data.map(f => ({
-    id: f.id || uuid(),
-    name: f.name || '导入的文件夹',
-    prompts: Array.isArray(f.prompts) ? f.prompts.map(p => ({
-      id: p.id || uuid(),
-      title: p.title || '未命名提示词',
-      text: p.text || '',
-      sourceUrl: p.sourceUrl || '',
-      sourceTitle: p.sourceTitle || '',
-      pinned: !!p.pinned,
-      pinnedAt: p.pinned ? (p.pinnedAt || p.timestamp || new Date().toISOString()) : '',
-      quickAt: p.quickAt || '',
-      timestamp: p.timestamp || new Date().toISOString()
-    })) : []
-  }));
+  return promptPocketLogic.normalizeImportedFolders(data, uuid);
 }
 
 function countPromptsInFolders(folderList) {
-  return (folderList || []).reduce((sum, folder) => sum + ((folder.prompts || []).length), 0);
+  return promptPocketLogic.countPromptsInFolders(folderList);
 }
 
 function normalizeCleanupText(text) {
-  return String(text || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return promptPocketLogic.normalizeCleanupText(text);
 }
 
 function getCleanupReport() {
-  const all = [];
-  const empty = [];
-  const groups = new Map();
-  folders.forEach((folder, folderIndex) => {
-    (folder.prompts || []).forEach((prompt, promptIndex) => {
-      const ref = { folder, folderIndex, prompt, promptIndex };
-      all.push(ref);
-      const key = normalizeCleanupText(prompt && prompt.text);
-      if (!key) {
-        empty.push(ref);
-        return;
-      }
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(ref);
-    });
-  });
-  const duplicateGroups = Array.from(groups.values()).filter(group => group.length > 1);
-  const duplicateExtras = duplicateGroups.reduce((sum, group) => sum + group.length - 1, 0);
-  return {
-    all,
-    empty,
-    duplicateGroups,
-    duplicateExtras
-  };
+  return promptPocketLogic.getCleanupReport(folders);
 }
 
 function openCleanupTool() {
@@ -1595,54 +1555,7 @@ function readJsonFile(file) {
 }
 
 function mergeImportedFolders(currentFolders, importedFolders) {
-  const next = currentFolders.map(folder => ({
-    ...folder,
-    prompts: Array.isArray(folder.prompts) ? folder.prompts.map(prompt => ({ ...prompt })) : []
-  }));
-  const usedFolderIds = new Set(next.map(folder => folder.id).filter(Boolean));
-  const usedPromptIds = new Set(next.flatMap(folder => (folder.prompts || []).map(prompt => prompt.id).filter(Boolean)));
-  let addedFolders = 0;
-  let addedPrompts = 0;
-  let skippedPrompts = 0;
-
-  importedFolders.forEach((importedFolder) => {
-    let target = next.find(folder => folder.id && importedFolder.id && folder.id === importedFolder.id);
-    if (!target) {
-      target = next.find(folder => normalizeSearch(folder.name) === normalizeSearch(importedFolder.name));
-    }
-    if (!target) {
-      const folderId = usedFolderIds.has(importedFolder.id) ? uuid() : importedFolder.id;
-      usedFolderIds.add(folderId);
-      target = {
-        id: folderId,
-        name: importedFolder.name,
-        prompts: []
-      };
-      next.push(target);
-      addedFolders += 1;
-    }
-
-    const existingPromptKeys = new Set((target.prompts || []).map(prompt => [
-      normalizeSearch(prompt.title),
-      normalizeSearch(prompt.text)
-    ].join('\n')));
-    (importedFolder.prompts || []).forEach((prompt) => {
-      const promptKey = [normalizeSearch(prompt.title), normalizeSearch(prompt.text)].join('\n');
-      const sameId = (target.prompts || []).some(item => item.id && prompt.id && item.id === prompt.id);
-      if (sameId || existingPromptKeys.has(promptKey)) {
-        skippedPrompts += 1;
-        return;
-      }
-      const promptId = usedPromptIds.has(prompt.id) ? uuid() : prompt.id;
-      usedPromptIds.add(promptId);
-      existingPromptKeys.add(promptKey);
-      target.prompts = target.prompts || [];
-      target.prompts.push({ ...prompt, id: promptId });
-      addedPrompts += 1;
-    });
-  });
-
-  return { folders: next, addedFolders, addedPrompts, skippedPrompts };
+  return promptPocketLogic.mergeImportedFolders(currentFolders, importedFolders, uuid);
 }
 
 function formatImportFileSize(file) {
@@ -1884,6 +1797,40 @@ function exportAiConfig() {
   URL.revokeObjectURL(url);
 }
 
+function sanitizeAiConfig(targets, prompts) {
+  const usedTargetIds = new Set();
+  const usedPromptIds = new Set();
+  let changed = false;
+  const nextTargets = (targets || []).map((target) => {
+    const source = target && typeof target === 'object' ? target : {};
+    const originalId = source.id;
+    const id = makeSafeId(originalId, usedTargetIds);
+    if (id !== originalId) changed = true;
+    return {
+      ...source,
+      id,
+      name: source.name || 'AI',
+      baseUrl: source.baseUrl || '',
+      queryParam: source.queryParam != null ? source.queryParam : 'q=',
+      usePasteFallback: !!source.usePasteFallback
+    };
+  });
+  const nextPrompts = (prompts || []).map((prompt) => {
+    const source = prompt && typeof prompt === 'object' ? prompt : {};
+    const originalId = source.id;
+    const id = makeSafeId(originalId, usedPromptIds);
+    if (id !== originalId) changed = true;
+    return {
+      ...source,
+      id,
+      name: source.name || '选中文本指令',
+      template: source.template || '',
+      timestamp: source.timestamp || new Date().toISOString()
+    };
+  });
+  return { aiTargets: nextTargets, selectionPrompts: nextPrompts, changed };
+}
+
 function importAiConfig(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -1896,19 +1843,12 @@ function importAiConfig(file) {
         return;
       }
       const nextEnabled = data.aiOnSelectionEnabled !== false;
-      const nextTargets = Array.isArray(data.aiTargets) ? data.aiTargets.map(t => ({
-        id: t.id || uuid(),
-        name: t.name || 'AI',
-        baseUrl: t.baseUrl || '',
-        queryParam: t.queryParam != null ? t.queryParam : 'q=',
-        usePasteFallback: !!t.usePasteFallback
-      })) : [];
-      const nextPrompts = Array.isArray(data.selectionPrompts) ? data.selectionPrompts.map(p => ({
-        id: p.id || uuid(),
-        name: p.name || '选中文本指令',
-        template: p.template || '',
-        timestamp: p.timestamp || new Date().toISOString()
-      })) : [];
+      const normalized = sanitizeAiConfig(
+        Array.isArray(data.aiTargets) ? data.aiTargets : [],
+        Array.isArray(data.selectionPrompts) ? data.selectionPrompts : []
+      );
+      const nextTargets = normalized.aiTargets;
+      const nextPrompts = normalized.selectionPrompts;
       aiOnSelectionEnabled = nextEnabled;
       aiTargets = nextTargets;
       selectionPrompts = nextPrompts;
