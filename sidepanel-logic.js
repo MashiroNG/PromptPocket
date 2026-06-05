@@ -142,13 +142,47 @@
   function getPromptSearchResults({ folders, folderFilterId = 'all', tokens = [], pinnedOnly = false }) {
     const results = [];
     getFilteredFolders(folders, folderFilterId).forEach((folder) => {
-      (folder.prompts || []).forEach((prompt) => {
+      getPromptDisplayItems(folder.prompts || []).forEach((prompt) => {
         if (promptMatchesSearch(prompt, folder, tokens, pinnedOnly)) {
           results.push({ folder, prompt });
         }
       });
     });
     return results;
+  }
+
+  function getPromptDisplayItems(prompts) {
+    return (prompts || []).map((prompt, index) => ({ prompt, index })).sort((a, b) => {
+      const aPinned = !!(a.prompt && a.prompt.pinned);
+      const bPinned = !!(b.prompt && b.prompt.pinned);
+      if (aPinned !== bPinned) return Number(bPinned) - Number(aPinned);
+      if (aPinned && bPinned) {
+        const pinnedDiff = getPinnedTime(b.prompt) - getPinnedTime(a.prompt);
+        if (pinnedDiff !== 0) return pinnedDiff;
+      }
+      return a.index - b.index;
+    }).map(entry => entry.prompt);
+  }
+
+  function getPromptInsertIndex(prompts) {
+    const list = Array.isArray(prompts) ? prompts : [];
+    const firstNormalIndex = list.findIndex(prompt => !prompt || !prompt.pinned);
+    return firstNormalIndex >= 0 ? firstNormalIndex : list.length;
+  }
+
+  function applyPromptDisplayOrder(prompts, orderedPrompts, baseTime = Date.now()) {
+    const original = Array.isArray(prompts) ? prompts : [];
+    const orderedIds = new Set((orderedPrompts || []).map(prompt => prompt && prompt.id).filter(Boolean));
+    const ordered = (orderedPrompts || []).filter(Boolean).concat(
+      original.filter(prompt => prompt && !orderedIds.has(prompt.id))
+    );
+    const pinned = ordered.filter(prompt => prompt && prompt.pinned);
+    const normal = ordered.filter(prompt => !prompt || !prompt.pinned);
+    pinned.forEach((prompt, index) => {
+      prompt.pinned = true;
+      prompt.pinnedAt = new Date(baseTime - index * 1000).toISOString();
+    });
+    return pinned.concat(normal);
   }
 
   function getPinnedTime(prompt) {
@@ -340,6 +374,9 @@
     promptMatchesSearch,
     getFilteredFolders,
     getPromptSearchResults,
+    getPromptDisplayItems,
+    getPromptInsertIndex,
+    applyPromptDisplayOrder,
     getPinnedTime,
     getQuickTime,
     getQuickPromptEntries,

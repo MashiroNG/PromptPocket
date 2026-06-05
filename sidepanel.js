@@ -248,6 +248,50 @@ function createPromptCard(prompt, folder, showFolderName, tokens = [], index = 0
   return card;
 }
 
+function appendPromptSection(listEl, title, prompts, folder, showFolderName, tokens, startIndex = 0) {
+  if (!Array.isArray(prompts) || prompts.length === 0) return startIndex;
+  const section = document.createElement('section');
+  section.className = 'prompt-section';
+  const heading = document.createElement('div');
+  heading.className = 'prompt-section-title';
+  heading.innerHTML = `<span>${escapeHtml(title)}</span><em>${prompts.length} 条</em>`;
+  section.appendChild(heading);
+  const body = document.createElement('div');
+  body.className = 'prompt-section-list';
+  prompts.forEach((prompt, offset) => {
+    body.appendChild(createPromptCard(prompt, folder, showFolderName, tokens, startIndex + offset));
+  });
+  section.appendChild(body);
+  listEl.appendChild(section);
+  return startIndex + prompts.length;
+}
+
+function appendPromptResultSections(listEl, results, showFolderName, tokens) {
+  const pinned = results.filter(({ prompt }) => prompt && prompt.pinned);
+  const normal = results.filter(({ prompt }) => !prompt || !prompt.pinned);
+  let index = 0;
+  [
+    ['置顶提示词', pinned],
+    ['普通提示词', normal]
+  ].forEach(([title, items]) => {
+    if (items.length === 0) return;
+    const section = document.createElement('section');
+    section.className = 'prompt-section';
+    const heading = document.createElement('div');
+    heading.className = 'prompt-section-title';
+    heading.innerHTML = `<span>${escapeHtml(title)}</span><em>${items.length} 条</em>`;
+    section.appendChild(heading);
+    const body = document.createElement('div');
+    body.className = 'prompt-section-list';
+    items.forEach(({ folder, prompt }) => {
+      body.appendChild(createPromptCard(prompt, folder, showFolderName, tokens, index));
+      index += 1;
+    });
+    section.appendChild(body);
+    listEl.appendChild(section);
+  });
+}
+
 function getPromptFolderFilterLabel() {
   if (!promptFolderFilterId || promptFolderFilterId === 'all') return '全部文件夹';
   const folder = folders.find(item => item.id === promptFolderFilterId);
@@ -514,10 +558,7 @@ function renderPrompts() {
       return;
     }
 
-    results.forEach(({ folder: resultFolder, prompt }, index) => {
-      const showFolderName = hasSearchQuery && promptFolderFilterId === 'all';
-      listEl.appendChild(createPromptCard(prompt, resultFolder, showFolderName, searchTokens, index));
-    });
+    appendPromptResultSections(listEl, results, hasSearchQuery && promptFolderFilterId === 'all', searchTokens);
     return;
   }
 
@@ -532,7 +573,7 @@ function renderPrompts() {
 
   emptyEl.classList.add('hidden');
   listEl.classList.remove('hidden');
-  const prompts = folder.prompts || [];
+  const prompts = promptPocketLogic.getPromptDisplayItems(folder.prompts || []);
   listEl.innerHTML = '';
 
   if (prompts.length === 0) {
@@ -540,9 +581,11 @@ function renderPrompts() {
     return;
   }
 
-  prompts.forEach((p, index) => {
-    listEl.appendChild(createPromptCard(p, folder, false, [], index));
-  });
+  const pinnedPrompts = prompts.filter(prompt => prompt && prompt.pinned);
+  const normalPrompts = prompts.filter(prompt => !prompt || !prompt.pinned);
+  let index = 0;
+  index = appendPromptSection(listEl, '置顶提示词', pinnedPrompts, folder, false, [], index);
+  appendPromptSection(listEl, '普通提示词', normalPrompts, folder, false, [], index);
 }
 
 function escapeHtml(s) {
@@ -882,7 +925,15 @@ function moveArrayItem(list, fromIndex, toIndex) {
 function clearDragIndicators(selector) {
   document.querySelectorAll(selector).forEach((el) => {
     el.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging');
+    delete el.dataset.dropLabel;
   });
+}
+
+function getPromptDropLabel(el, insertAfter) {
+  const sectionTitle = el.closest('.prompt-section') &&
+    el.closest('.prompt-section').querySelector('.prompt-section-title span');
+  const group = sectionTitle && sectionTitle.textContent || '提示词';
+  return `放到${group}${insertAfter ? '下方' : '上方'}`;
 }
 
 function onFolderDragStart(e, folderId) {
@@ -906,10 +957,14 @@ function onItemDragOver(e) {
   const insertAfter = e.clientY > rect.top + rect.height / 2;
   el.classList.toggle('drag-over-top', !insertAfter);
   el.classList.toggle('drag-over-bottom', insertAfter);
+  if (el.classList.contains('prompt-card')) {
+    el.dataset.dropLabel = getPromptDropLabel(el, insertAfter);
+  }
 }
 
 function onItemDragLeave(e) {
   e.currentTarget.classList.remove('drag-over-top', 'drag-over-bottom');
+  delete e.currentTarget.dataset.dropLabel;
 }
 
 function onItemDragEnd() {
@@ -966,11 +1021,13 @@ function onPromptDrop(e, targetPromptId, targetFolderId) {
   if (dragState.sourceFolderId !== targetFolderId) return;
   const folder = folders.find(f => f.id === targetFolderId);
   if (!folder || !Array.isArray(folder.prompts)) return;
-  const sourceIndex = folder.prompts.findIndex(p => p.id === dragState.id);
-  const targetIndex = folder.prompts.findIndex(p => p.id === targetPromptId);
+  const displayPrompts = promptPocketLogic.getPromptDisplayItems(folder.prompts);
+  const sourceIndex = displayPrompts.findIndex(p => p.id === dragState.id);
+  const targetIndex = displayPrompts.findIndex(p => p.id === targetPromptId);
   if (sourceIndex < 0 || targetIndex < 0) return;
   const destinationIndex = getDestinationIndex(e.currentTarget, sourceIndex, targetIndex, e.clientY);
-  if (!moveArrayItem(folder.prompts, sourceIndex, destinationIndex)) return;
+  if (!moveArrayItem(displayPrompts, sourceIndex, destinationIndex)) return;
+  folder.prompts = promptPocketLogic.applyPromptDisplayOrder(folder.prompts, displayPrompts);
   saveFolders().then(loadFolders);
 }
 
@@ -1293,7 +1350,8 @@ function savePromptFromModal() {
   } else {
     const createdAt = nowIso();
     folder.prompts = folder.prompts || [];
-    folder.prompts.push({
+    const insertIndex = promptPocketLogic.getPromptInsertIndex(folder.prompts);
+    folder.prompts.splice(insertIndex, 0, {
       id: uuid(),
       title,
       text,

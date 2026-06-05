@@ -127,6 +127,32 @@ function titles(entries) {
 }
 
 {
+  const prompts = [
+    { id: 'new', title: '新加普通', text: '1', timestamp: '2026-06-02T08:00:00.000Z' },
+    { id: 'old_pin', title: '旧置顶', text: '2', pinned: true, pinnedAt: '2026-06-01T08:00:00.000Z' },
+    { id: 'old', title: '旧普通', text: '3', timestamp: '2026-06-01T07:00:00.000Z' },
+    { id: 'new_pin', title: '新置顶', text: '4', pinned: true, pinnedAt: '2026-06-02T08:00:00.000Z' }
+  ];
+  assert.deepEqual(
+    logic.getPromptDisplayItems(prompts).map(prompt => prompt.title),
+    ['新置顶', '旧置顶', '新加普通', '旧普通']
+  );
+  assert.equal(logic.getPromptInsertIndex([{ pinned: true }, { pinned: true }, { pinned: false }]), 2);
+  assert.equal(logic.getPromptInsertIndex([{ pinned: false }, { pinned: true }]), 0);
+
+  const reordered = logic.applyPromptDisplayOrder(
+    prompts,
+    [prompts[1], prompts[3], prompts[0], prompts[2]],
+    Date.parse('2026-06-03T00:00:00.000Z')
+  );
+  assert.deepEqual(reordered.map(prompt => prompt.title), ['旧置顶', '新置顶', '新加普通', '旧普通']);
+  assert.deepEqual(
+    logic.getPromptDisplayItems(reordered).map(prompt => prompt.title),
+    ['旧置顶', '新置顶', '新加普通', '旧普通']
+  );
+}
+
+{
   const folders = [
     {
       id: 'f1',
