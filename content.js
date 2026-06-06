@@ -35,12 +35,21 @@ function deactivateExtensionFeatures() {
   removeQuickPromptUi();
 }
 
+const injectionMessageHandler = PromptPocketInjectionRouting.createInjectionMessageHandler(
+  (platform, text) => injectTextViaAdapter(platform, text)
+);
+
 if (hasRuntimeContext()) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (!msg || msg.action !== 'injectGemini') return;
-    injectTextViaAdapter('gemini', msg.text || '').then((ok) => {
-      sendResponse({ success: !!ok });
-    });
+    if (!msg || msg.action !== 'injectPrompt') return;
+    try {
+      injectionMessageHandler(msg).then(
+        sendResponse,
+        () => sendResponse({ success: false })
+      );
+    } catch (error) {
+      sendResponse({ success: false });
+    }
     return true;
   });
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -1496,13 +1505,9 @@ async function waitForComposer(adapter, timeoutMs) {
   });
 }
 
-async function injectGeminiText(text) {
-  return injectTextViaAdapter('gemini', text);
-}
-
 async function injectTextViaAdapter(adapterName, text) {
-  const adapter = getPlatformAdapter(adapterName);
-  if (!adapter) return false;
+  const adapter = adapterName ? getPlatformAdapter(adapterName) : getActiveAdapter();
+  if (!adapter || !adapter.isPage()) return false;
   const editor = await waitForComposer(adapter, 15000);
   if (!editor) return false;
 

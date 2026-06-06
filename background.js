@@ -1,6 +1,6 @@
 /* Right-Click Prompt (Local) - background service worker. No auth, no cloud. */
 
-importScripts('sidepanel-logic.js', 'folder-store.js');
+importScripts('sidepanel-logic.js', 'folder-store.js', 'injection-routing.js');
 
 const MENU_ROOT = 'rcp_root';
 const AI_MENU_ROOT = 'ai_selection_root';
@@ -451,304 +451,11 @@ async function copyToClipboard(text) {
   }
 }
 
-async function tryPasteInTab(tabId, text, frameId) {
-  if (!tabId || !chrome.scripting) return false;
-  try {
-    const target = Number.isInteger(frameId) && frameId >= 0
-      ? { tabId, frameIds: [frameId] }
-      : { tabId };
-    const result = await chrome.scripting.executeScript({
-      target,
-      func: async (t) => {
-        function isTextLikeInput(el) {
-          if (!el || el.tagName !== 'INPUT') return false;
-          var type = (el.type || 'text').toLowerCase();
-          return !/^(button|submit|reset|checkbox|radio|file|image|range|color|hidden)$/i.test(type);
-        }
-        function isEditable(el) {
-          return !!(el && (el.tagName === 'TEXTAREA' || isTextLikeInput(el) || el.isContentEditable));
-        }
-        function isVisible(el) {
-          if (!el) return false;
-          var rect = el.getBoundingClientRect();
-          return (el.offsetParent !== null || rect.height > 0 || rect.width > 0);
-        }
-        function setNativeValue(el, next) {
-          if (!el) return;
-          var proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement && window.HTMLTextAreaElement.prototype : window.HTMLInputElement && window.HTMLInputElement.prototype;
-          var desc = proto && Object.getOwnPropertyDescriptor(proto, 'value');
-          if (desc && desc.set) {
-            desc.set.call(el, next);
-          } else {
-            el.value = next;
-          }
-        }
-        function pasteInto(el) {
-          if (!el) return false;
-          el.focus();
-          if (el.tagName === 'TEXTAREA' || isTextLikeInput(el)) {
-            var start = el.selectionStart || 0, end = el.selectionEnd || 0, val = el.value || '';
-            setNativeValue(el, val.slice(0, start) + t + val.slice(end));
-            el.selectionStart = el.selectionEnd = start + t.length;
-            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: t, inputType: 'insertText' }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-          }
-          if (el.isContentEditable) {
-            if (document.execCommand('insertText', false, t)) return true;
-            var sel = window.getSelection(), r = sel && sel.rangeCount && sel.getRangeAt(0);
-            if (r) {
-              r.deleteContents();
-              var tn = document.createTextNode(t);
-              r.insertNode(tn);
-              r.setStartAfter(tn);
-              r.setEndAfter(tn);
-              sel.removeAllRanges();
-              sel.addRange(r);
-              el.dispatchEvent(new InputEvent('input', { bubbles: true, data: t }));
-              return true;
-            }
-            try {
-              el.textContent = t;
-              el.dispatchEvent(new InputEvent('input', { bubbles: true, data: t }));
-              return true;
-            } catch (e) {}
-            return false;
-          }
-          return false;
-        }
-        function dispatchPaste(el, text) {
-          try {
-            var dt = new DataTransfer();
-            dt.setData('text/plain', text);
-            var evt = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
-            return el.dispatchEvent(evt);
-          } catch (e) {
-            return false;
-          }
-        }
-        function readEditableValue(el) {
-          if (!el) return '';
-          if (el.tagName === 'TEXTAREA' || isTextLikeInput(el)) return el.value || '';
-          if (el.isContentEditable) return el.textContent || '';
-          return '';
-        }
-        async function sleep(ms) {
-          return new Promise((r) => setTimeout(r, ms));
-        }
-        async function waitForElement(selectors, timeoutMs) {
-          return new Promise((resolve) => {
-            var done = false;
-            var timeout = setTimeout(() => {
-              if (done) return;
-              done = true;
-              observer.disconnect();
-              resolve(null);
-            }, timeoutMs || 7000);
-            function check() {
-              for (var i = 0; i < selectors.length; i++) {
-                var el = document.querySelector(selectors[i]);
-                if (el && isVisible(el)) return el;
-              }
-              return null;
-            }
-            var found = check();
-            if (found) {
-              done = true;
-              clearTimeout(timeout);
-              resolve(found);
-              return;
-            }
-            var observer = new MutationObserver(() => {
-              var next = check();
-              if (next && !done) {
-                done = true;
-                clearTimeout(timeout);
-                observer.disconnect();
-                resolve(next);
-              }
-            });
-            observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
-          });
-        }
-        function deepQuerySelector(selectors) {
-          var queue = [document.documentElement];
-          while (queue.length) {
-            var node = queue.shift();
-            if (!node) continue;
-            if (node.nodeType === 1) {
-              for (var i = 0; i < selectors.length; i++) {
-                if (node.matches && node.matches(selectors[i])) return node;
-              }
-              if (node.shadowRoot) queue.push(node.shadowRoot);
-              var children = node.children;
-              for (var j = 0; j < children.length; j++) queue.push(children[j]);
-            } else if (node instanceof ShadowRoot) {
-              var srChildren = node.children;
-              for (var k = 0; k < srChildren.length; k++) queue.push(srChildren[k]);
-            }
-          }
-          return null;
-        }
-        function focusAndClick(el) {
-          try {
-            el.focus();
-            el.click();
-          } catch (e) {}
-        }
-        function clearEditable(el) {
-          try {
-            if (el.isContentEditable) el.textContent = '';
-          } catch (e) {}
-        }
-        function setSelectionToEnd(el) {
-          try {
-            var range = document.createRange();
-            range.selectNodeContents(el);
-            range.collapse(false);
-            var sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-          } catch (e) {}
-        }
-        function dispatchInput(el, text) {
-          try {
-            var evt = new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' });
-            el.dispatchEvent(evt);
-          } catch (e) {}
-        }
-        function dispatchKeyEvents(el) {
-          try {
-            el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ' ' }));
-            el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ' }));
-          } catch (e) {}
-        }
-        function insertHtmlParagraph(el, text) {
-          try {
-            el.innerHTML = '';
-            var p = document.createElement('p');
-            p.textContent = text;
-            el.appendChild(p);
-            setSelectionToEnd(el);
-            dispatchInput(el, text);
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            dispatchKeyEvents(el);
-            return true;
-          } catch (e) {
-            return false;
-          }
-        }
-        function tryPasteWithEvents(el, text) {
-          focusAndClick(el);
-          var before = readEditableValue(el);
-          var dispatched = dispatchPaste(el, text);
-          var after = readEditableValue(el);
-          if (after !== before) return true;
-          if (el && el.isContentEditable && dispatched === false) return true;
-          if (dispatched) return true;
-          try {
-            if (document.execCommand('paste')) return true;
-          } catch (e) {}
-          try {
-            if (document.execCommand('insertText', false, text)) return true;
-          } catch (e) {}
-          return false;
-        }
-        function isGemini() {
-          return /(^|\.)gemini\.google\.com$/i.test(location.hostname || '');
-        }
-        async function tryGemini(text) {
-          var selectors = [
-            'rich-textarea .ql-editor[contenteditable="true"]',
-            'rich-textarea .ql-editor',
-            'div[contenteditable="true"][role="textbox"]',
-            'div[contenteditable="true"]',
-            '.ql-editor',
-            '.input-area [contenteditable="true"]'
-          ];
-          var el = await waitForElement(selectors, 12000);
-          if (!el) {
-            el = deepQuerySelector(selectors);
-          }
-          if (!el) return false;
-          await sleep(1200);
-          focusAndClick(el);
-          setSelectionToEnd(el);
-          clearEditable(el);
-          if (tryPasteWithEvents(el, text)) return true;
-          try {
-            if (document.execCommand('insertText', false, text)) return true;
-          } catch (e) {}
-          try {
-            el.textContent = text;
-            dispatchInput(el, text);
-            dispatchKeyEvents(el);
-            return true;
-          } catch (e) {}
-          if (insertHtmlParagraph(el, text)) return true;
-          await sleep(50);
-          return pasteInto(el);
-        }
-        var el = document.activeElement;
-        if (el && isEditable(el)) {
-          if (tryPasteWithEvents(el, t)) return true;
-          if (pasteInto(el)) return true;
-        }
-        if (isGemini()) {
-          if (await tryGemini(t)) return true;
-        }
-        var selectors = [
-          '#prompt-textarea', '[id^="prompt-textarea"]',
-          'form input:not([type]), form input[type="text"], form input[type="search"], form input[type="email"], form input[type="url"], form input[type="tel"], form input[type="password"], form input[type="number"]',
-          'div[contenteditable="true"][data-id="root"]',
-          '[data-testid="composer-input-container"] [contenteditable="true"]',
-          '.ProseMirror[contenteditable="true"]',
-          '[data-testid="composer-input"]',
-          'form textarea', 'main textarea', '.input textarea', '.composer textarea',
-          'div[contenteditable="true"]'
-        ];
-        var found = await waitForElement(selectors, 8000);
-        if (found) {
-          if (tryPasteWithEvents(found, t)) return true;
-          if (pasteInto(found)) return true;
-        }
-        var textareas = document.querySelectorAll('textarea');
-        for (var j = 0; j < textareas.length; j++)
-          if (isVisible(textareas[j]) && (tryPasteWithEvents(textareas[j], t) || pasteInto(textareas[j]))) return true;
-        var inputs = document.querySelectorAll('input');
-        for (var m = 0; m < inputs.length; m++) {
-          var input = inputs[m];
-          if (!isTextLikeInput(input)) continue;
-          if (isVisible(input))
-            if (tryPasteWithEvents(input, t) || pasteInto(input)) return true;
-        }
-        var editables = document.querySelectorAll('[contenteditable="true"]');
-        for (var k = 0; k < editables.length; k++)
-          if (isVisible(editables[k]) && (tryPasteWithEvents(editables[k], t) || pasteInto(editables[k]))) return true;
-        return false;
-      },
-      args: [text]
-    });
-    return result && result[0] && result[0].result === true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function getTabPlatform(url) {
-  try {
-    return PromptPocketLogic.getPromptPocketPlatform(new URL(url || '').hostname || '');
-  } catch (e) {
-    return '';
-  }
-}
-
 async function tryAutoPasteInTab(tabId, text, frameId, url) {
   if (!tabId) return false;
-  if (getTabPlatform(url) === 'gemini') {
-    return sendMessageWithRetry(tabId, { action: 'injectGemini', text }, 8, 600);
-  }
-  return tryPasteInTab(tabId, text, frameId);
+  const request = PromptPocketInjectionRouting.createInjectionRequest(url, text);
+  if (!request) return false;
+  return sendMessageWithRetry(tabId, request.message, 8, 600, frameId);
 }
 
 function applySelectionTemplate(template, selectedText) {
@@ -814,13 +521,7 @@ async function handleAiOnSelectionClick(promptId, targetId, selectionText) {
     const tab = await chrome.tabs.create({ url: baseUrl, active: true });
     if (!tab || !tab.id) return;
     await waitForTabComplete(tab.id, 15000);
-    const isGemini = /(^|\.)gemini\.google\.com$/i.test((new URL(baseUrl)).hostname || '');
-    if (isGemini) {
-      const injected = await sendMessageWithRetry(tab.id, { action: 'injectGemini', text: composed }, 8, 600);
-      showToast(injected ? '已粘贴' : '已复制，请按 Ctrl+V 粘贴');
-      return;
-    }
-    const pasted = await tryPasteInTab(tab.id, composed);
+    const pasted = await tryAutoPasteInTab(tab.id, composed, undefined, baseUrl);
     showToast(pasted ? '已粘贴' : '已复制，请按 Ctrl+V 粘贴');
     return;
   }
@@ -830,84 +531,34 @@ async function handleAiOnSelectionClick(promptId, targetId, selectionText) {
   await chrome.tabs.create({ url, active: true });
 }
 
-function sendMessageWithRetry(tabId, message, attempts, delayMs) {
+function sendMessageWithRetry(tabId, message, attempts, delayMs, frameId) {
   return new Promise((resolve) => {
     let count = 0;
     const trySend = () => {
       count += 1;
-      chrome.tabs.sendMessage(tabId, message, (resp) => {
+      const callback = (resp) => {
         if (chrome.runtime.lastError) {
           if (count < attempts) return setTimeout(trySend, delayMs || 400);
           return resolve(false);
         }
         resolve(resp && resp.success === true);
-      });
+      };
+      const options = PromptPocketInjectionRouting.createSendMessageOptions(frameId);
+      chrome.tabs.sendMessage(tabId, message, options, callback);
     };
     trySend();
   });
 }
 
-async function tryFocusGemini(tabId) {
-  if (!tabId || !chrome.scripting) return false;
-  try {
-    const result = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: async () => {
-        function isVisible(el) {
-          if (!el) return false;
-          var rect = el.getBoundingClientRect();
-          return (el.offsetParent !== null || rect.height > 0 || rect.width > 0);
-        }
-        async function waitForElement(selectors, timeoutMs) {
-          return new Promise((resolve) => {
-            var done = false;
-            var timeout = setTimeout(() => {
-              if (done) return;
-              done = true;
-              observer.disconnect();
-              resolve(null);
-            }, timeoutMs || 7000);
-            function check() {
-              for (var i = 0; i < selectors.length; i++) {
-                var el = document.querySelector(selectors[i]);
-                if (el && isVisible(el)) return el;
-              }
-              return null;
-            }
-            var found = check();
-            if (found) {
-              done = true;
-              clearTimeout(timeout);
-              resolve(found);
-              return;
-            }
-            var observer = new MutationObserver(() => {
-              var next = check();
-              if (next && !done) {
-                done = true;
-                clearTimeout(timeout);
-                observer.disconnect();
-                resolve(next);
-              }
-            });
-            observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
-          });
-        }
-        var selectors = [
-          'div[contenteditable="true"][role="textbox"]',
-          '.ql-editor[contenteditable="true"]',
-          'div[contenteditable="true"]'
-        ];
-        var el = await waitForElement(selectors, 12000);
-        if (!el) return false;
-        try { el.focus(); el.click(); } catch (e) {}
-        return true;
-      }
-    });
-    return result && result[0] && result[0].result === true;
-  } catch (e) {
+async function copyPromptFallback(text, url) {
+  const restricted = /^(chrome|chrome-extension|devtools|edge|about|centbrowser):/i.test(url || '');
+  if (restricted) {
+    showToast('浏览器内部页面不可用，请切换到普通网页');
     return false;
   }
+  const ok = await copyToClipboard(text);
+  showToast(ok ? '已复制，请按 Ctrl+V 粘贴' : '复制失败');
+  return ok;
 }
 
 async function handlePromptCopy(promptId, text) {
@@ -924,12 +575,7 @@ async function handlePromptCopy(promptId, text) {
       return;
     }
   }
-  if (restricted) {
-    showToast('浏览器内部页面不可用，请切换到普通网页');
-    return;
-  }
-  const ok = await copyToClipboard(text);
-  showToast(ok ? '已复制，请按 Ctrl+V 粘贴' : '复制失败');
+  await copyPromptFallback(text, url);
 }
 
 async function handleSelectionCommandCopy(text, tab, frameId) {
@@ -1028,7 +674,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           return;
         }
       }
-      await handlePromptCopy(prompt.id, prompt.text);
+      await copyPromptFallback(prompt.text, url);
       return;
     }
   }
