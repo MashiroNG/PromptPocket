@@ -2,6 +2,22 @@ let currentDraft = null;
 let folders = [];
 const DEFAULT_FOLDER_NAME = '收件箱';
 
+function sendFolderMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || '请求失败'));
+        return;
+      }
+      if (!response || !response.success) {
+        reject(new Error(response && response.error || '请求失败'));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
 function applyTheme(theme) {
   document.body.classList.toggle('theme-light', theme === 'light');
 }
@@ -26,9 +42,12 @@ function formatStorageError(error) {
 }
 
 async function loadDraft() {
-  const data = await chrome.storage.local.get({ pendingPromptSave: null, folders: [] });
+  const [data, folderState] = await Promise.all([
+    chrome.storage.local.get({ pendingPromptSave: null }),
+    sendFolderMessage({ action: 'getFolders' })
+  ]);
   const { pendingPromptSave } = data;
-  folders = Array.isArray(data.folders) ? data.folders : [];
+  folders = Array.isArray(folderState.folders) ? folderState.folders : [];
   currentDraft = pendingPromptSave || {};
   renderFolderOptions();
   document.getElementById('promptTitle').value = currentDraft.title || '';
@@ -56,11 +75,6 @@ function renderFolderOptions() {
   select.value = currentDraft.folderId || (inbox && inbox.id) || '';
 }
 
-function createId() {
-  if (crypto && crypto.randomUUID) return crypto.randomUUID();
-  return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
-}
-
 function openNewFolderRow() {
   showError('');
   document.getElementById('newFolderRow').classList.add('open');
@@ -80,20 +94,14 @@ async function addFolder() {
     return;
   }
 
-  const folder = {
-    id: createId(),
-    name,
-    prompts: []
-  };
-  folders.push(folder);
   try {
-    await chrome.storage.local.set({ folders });
+    const response = await sendFolderMessage({ action: 'addFolder', name });
+    folders = Array.isArray(response.folders) ? response.folders : folders;
+    currentDraft.folderId = response.folder && response.folder.id || '';
   } catch (error) {
-    folders = folders.filter(item => item.id !== folder.id);
     showError('新建文件夹失败：' + formatStorageError(error));
     return;
   }
-  currentDraft.folderId = folder.id;
   renderFolderOptions();
   closeNewFolderRow();
   showError('');

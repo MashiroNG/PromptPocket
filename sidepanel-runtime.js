@@ -1,13 +1,64 @@
 /* PromptPocket side panel shared runtime helpers. */
 
+function sendFolderMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || '请求失败'));
+        return;
+      }
+      if (!response || !response.success) {
+        reject(new Error(response && response.error || '请求失败'));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+async function requestFolderState() {
+  const response = await sendFolderMessage({ action: 'getFolders' });
+  return {
+    folders: Array.isArray(response.folders) ? response.folders : [],
+    revision: Number.isSafeInteger(response.revision) ? response.revision : 0
+  };
+}
+
 async function saveFolders() {
   try {
-    await chrome.storage.local.set({ folders });
-    chrome.runtime.sendMessage({ action: 'rebuildMenu' }).catch(() => {});
+    const response = await sendFolderMessage({
+      action: 'commitFolders',
+      folders,
+      expectedRevision: foldersRevision
+    });
+    if (response.conflict) {
+      const latest = PromptPocketSidepanelSaveLogic.reconcileFolderCommit({
+        folders: response.folders,
+        revision: response.revision,
+        selectedFolderId
+      });
+      folders = latest.folders;
+      foldersRevision = latest.revision;
+      selectedFolderId = latest.selectedFolderId;
+      render();
+      alert('数据已在其他窗口更新，请重新操作');
+      return false;
+    }
+    foldersRevision = response.revision;
+    return true;
   } catch (error) {
     notifyStorageError('保存提示词失败', error);
     throw error;
   }
+}
+
+function afterFoldersSaved(onSuccess) {
+  return saveFolders()
+    .then(saved => {
+      if (saved && onSuccess) return onSuccess();
+      return saved;
+    })
+    .catch(() => false);
 }
 
 async function loadQuickScopeSettings() {

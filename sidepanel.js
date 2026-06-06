@@ -1,6 +1,7 @@
 /* Right-Click Prompt (Local) - side panel. No auth, no cloud. */
 
 let folders = [];
+let foldersRevision = 0;
 let selectedFolderId = null;
 let dragState = null;
 let promptSearchQuery = '';
@@ -54,9 +55,10 @@ async function closeSidePanelFromShortcut() {
 }
 
 async function loadFolders() {
-  const { folders: f } = await chrome.storage.local.get({ folders: [] });
-  const normalized = sanitizeFolders(Array.isArray(f) ? f : []);
+  const state = await requestFolderState();
+  const normalized = sanitizeFolders(Array.isArray(state.folders) ? state.folders : []);
   folders = normalized.folders;
+  foldersRevision = state.revision;
   if (normalized.changed) await saveFolders();
   if (folders.length === 0) {
     folders = [{ id: uuid(), name: DEFAULT_FOLDER_NAME, prompts: [] }];
@@ -663,7 +665,7 @@ function togglePromptPinned(promptId) {
   const location = getPromptLocation(promptId);
   if (!location) return;
   applyPinnedState(location.prompt, !location.prompt.pinned);
-  saveFolders().then(loadFolders);
+  afterFoldersSaved(loadFolders);
 }
 
 function getPinnedTime(prompt) {
@@ -853,7 +855,7 @@ function onPinnedManagerDrop(e, targetPromptId) {
   const destinationIndex = getDestinationIndex(e.currentTarget, sourceIndex, targetIndex, e.clientY);
   if (!moveArrayItem(entries, sourceIndex, destinationIndex)) return;
   applyPinnedPromptOrder(entries);
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     render();
     renderPinnedManager();
   });
@@ -871,7 +873,7 @@ function onQuickManagerDrop(e, targetPromptId) {
   const destinationIndex = getDestinationIndex(e.currentTarget, sourceIndex, targetIndex, e.clientY);
   if (!moveArrayItem(entries, sourceIndex, destinationIndex)) return;
   applyQuickPromptOrder(entries);
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     render();
     renderQuickManager();
   });
@@ -884,7 +886,7 @@ function movePinnedManagerItem(promptId, direction) {
   const targetIndex = sourceIndex + direction;
   if (!moveArrayItem(entries, sourceIndex, targetIndex)) return;
   applyPinnedPromptOrder(entries);
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     render();
     renderPinnedManager();
   });
@@ -897,7 +899,7 @@ function moveQuickManagerItem(promptId, direction) {
   const targetIndex = sourceIndex + direction;
   if (!moveArrayItem(entries, sourceIndex, targetIndex)) return;
   applyQuickPromptOrder(entries);
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     render();
     renderQuickManager();
   });
@@ -907,7 +909,7 @@ function unpinFromPinnedManager(promptId) {
   const location = getPromptLocation(promptId);
   if (!location) return;
   applyPinnedState(location.prompt, false);
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     render();
     renderPinnedManager();
   });
@@ -999,7 +1001,7 @@ function onFolderDrop(e, targetFolderId) {
   if (sourceIndex < 0 || targetIndex < 0) return;
   const destinationIndex = getDestinationIndex(e.currentTarget, sourceIndex, targetIndex, e.clientY);
   if (!moveArrayItem(folders, sourceIndex, destinationIndex)) return;
-  saveFolders().then(loadFolders);
+  afterFoldersSaved(loadFolders);
 }
 
 function movePromptToFolder(promptId, sourceFolderId, targetFolderId) {
@@ -1011,7 +1013,7 @@ function movePromptToFolder(promptId, sourceFolderId, targetFolderId) {
   targetFolder.prompts = targetFolder.prompts || [];
   targetFolder.prompts.push(moved);
   selectedFolderId = targetFolderId;
-  saveFolders().then(loadFolders);
+  afterFoldersSaved(loadFolders);
 }
 
 function onPromptDrop(e, targetPromptId, targetFolderId) {
@@ -1028,7 +1030,7 @@ function onPromptDrop(e, targetPromptId, targetFolderId) {
   const destinationIndex = getDestinationIndex(e.currentTarget, sourceIndex, targetIndex, e.clientY);
   if (!moveArrayItem(displayPrompts, sourceIndex, destinationIndex)) return;
   folder.prompts = promptPocketLogic.applyPromptDisplayOrder(folder.prompts, displayPrompts);
-  saveFolders().then(loadFolders);
+  afterFoldersSaved(loadFolders);
 }
 
 function handlePromptActionClick(e) {
@@ -1292,11 +1294,11 @@ function saveFolderFromModal() {
       prompts: []
     });
   }
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     document.getElementById('saveFolder').dataset.editFolderId = '';
     document.getElementById('deleteFolder').classList.add('hidden');
     document.getElementById('modalFolder').classList.add('hidden');
-    loadFolders();
+    return loadFolders();
   });
 }
 
@@ -1361,12 +1363,14 @@ function savePromptFromModal() {
       timestamp: createdAt
     });
   }
-  document.getElementById('savePrompt').dataset.editId = '';
-  document.getElementById('savePrompt').dataset.editFolderId = '';
-  document.getElementById('promptPinned').checked = false;
-  document.getElementById('deletePrompt').classList.add('hidden');
-  document.getElementById('modalPrompt').classList.add('hidden');
-  saveFolders().then(loadFolders);
+  afterFoldersSaved(() => {
+    document.getElementById('savePrompt').dataset.editId = '';
+    document.getElementById('savePrompt').dataset.editFolderId = '';
+    document.getElementById('promptPinned').checked = false;
+    document.getElementById('deletePrompt').classList.add('hidden');
+    document.getElementById('modalPrompt').classList.add('hidden');
+    return loadFolders();
+  });
 }
 
 function saveSelectionPromptFromModal() {
@@ -1400,10 +1404,12 @@ function deleteFolderFromModal() {
   if (!editFolderId) return;
   folders = folders.filter(f => f.id !== editFolderId);
   if (selectedFolderId === editFolderId) selectedFolderId = null;
-  document.getElementById('saveFolder').dataset.editFolderId = '';
-  document.getElementById('deleteFolder').classList.add('hidden');
-  document.getElementById('modalFolder').classList.add('hidden');
-  saveFolders().then(loadFolders);
+  afterFoldersSaved(() => {
+    document.getElementById('saveFolder').dataset.editFolderId = '';
+    document.getElementById('deleteFolder').classList.add('hidden');
+    document.getElementById('modalFolder').classList.add('hidden');
+    return loadFolders();
+  });
 }
 
 function deleteAiTargetFromModal() {
@@ -1423,11 +1429,13 @@ function deletePromptFromModal() {
   const folder = editFolderId ? folders.find(f => f.id === editFolderId) : getSelectedFolder();
   if (!folder) return;
   folder.prompts = (folder.prompts || []).filter(p => p.id !== promptId);
-  document.getElementById('savePrompt').dataset.editId = '';
-  document.getElementById('savePrompt').dataset.editFolderId = '';
-  document.getElementById('deletePrompt').classList.add('hidden');
-  document.getElementById('modalPrompt').classList.add('hidden');
-  saveFolders().then(loadFolders);
+  afterFoldersSaved(() => {
+    document.getElementById('savePrompt').dataset.editId = '';
+    document.getElementById('savePrompt').dataset.editFolderId = '';
+    document.getElementById('deletePrompt').classList.add('hidden');
+    document.getElementById('modalPrompt').classList.add('hidden');
+    return loadFolders();
+  });
 }
 
 function deleteSelectionPromptFromModal() {
@@ -1571,7 +1579,7 @@ function cleanupEmptyPrompts() {
   folders.forEach(folder => {
     folder.prompts = (folder.prompts || []).filter(prompt => !deletePrompts.has(prompt));
   });
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     render();
     renderCleanupTool();
     alert('已清理 ' + deletePrompts.size + ' 条空内容提示词，并已下载清理前备份。');
@@ -1590,7 +1598,7 @@ function cleanupDuplicatePrompts() {
   folders.forEach(folder => {
     folder.prompts = (folder.prompts || []).filter(prompt => !deletePrompts.has(prompt));
   });
-  saveFolders().then(() => {
+  afterFoldersSaved(() => {
     render();
     renderCleanupTool();
     alert('已清理 ' + deletePrompts.size + ' 条重复提示词，并已下载清理前备份。');
@@ -1765,9 +1773,10 @@ async function importNormalizedFolders(imported, mode = 'merge') {
       message = '合并导入完成：新增 ' + result.addedFolders + ' 个文件夹、' + result.addedPrompts + ' 条提示词。';
       if (result.skippedPrompts > 0) message += ' 已跳过 ' + result.skippedPrompts + ' 条重复提示词。';
     }
-    await saveFolders();
+    const saved = await saveFolders();
+    if (!saved) return;
     closeImportModal();
-    loadFolders();
+    await loadFolders();
     alert(message + '\n已自动下载导入前备份。');
   } catch (err) {
     alert('导入失败：' + (err.message || err));
@@ -2148,7 +2157,7 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.folders) {
+  if (area === 'local' && (changes.folders || changes.foldersRevision)) {
     loadFolders();
   }
   if (area === 'local' && (changes.quickPromptScopeMode || changes.quickPromptScopeFolderId)) {

@@ -1,6 +1,6 @@
 /* Right-Click Prompt (Local) - background service worker. No auth, no cloud. */
 
-importScripts('sidepanel-logic.js');
+importScripts('sidepanel-logic.js', 'folder-store.js');
 
 const MENU_ROOT = 'rcp_root';
 const AI_MENU_ROOT = 'ai_selection_root';
@@ -14,17 +14,39 @@ const MAX_PINNED_PROMPTS = 12;
 const SAVE_POPUP_WIDTH = 640;
 const SAVE_POPUP_HEIGHT = 760;
 
-async function getFolders() {
-  const { folders } = await chrome.storage.local.get({ folders: [] });
-  return Array.isArray(folders) ? folders : [];
+const folderStore = promptPocketFolderStore.createFolderStore({
+  readState: async () => {
+    const saved = await chrome.storage.local.get({ folders: [], foldersRevision: 0 });
+    return { folders: saved.folders, revision: saved.foldersRevision };
+  },
+  writeState: async ({ folders, revision }) => {
+    try {
+      await chrome.storage.local.set({ folders, foldersRevision: revision });
+    } catch (error) {
+      throw new Error(formatStorageError(error));
+    }
+  }
+});
+
+async function getFolderState() {
+  return folderStore.read();
 }
 
-async function saveFolders(folders) {
-  try {
-    await chrome.storage.local.set({ folders });
-  } catch (error) {
-    throw new Error(formatStorageError(error));
-  }
+async function getFolders() {
+  const state = await getFolderState();
+  return state.folders;
+}
+
+async function addFolder(name) {
+  const folderName = String(name || '').trim();
+  if (!folderName) throw new Error('文件夹名称不能为空。');
+
+  const state = await folderStore.mutate((folders) => {
+    const folder = { id: createId(), name: folderName, prompts: [] };
+    folders.push(folder);
+    return folder;
+  });
+  return { folder: state.result, folders: state.folders, revision: state.revision };
 }
 
 function formatStorageError(error) {
@@ -76,18 +98,18 @@ async function saveSelectionAsPrompt(selectionText, tab) {
     return;
   }
 
-  const folders = await getFolders();
-  const inbox = getOrCreateInbox(folders);
-  inbox.prompts.unshift({
-    id: createId(),
-    title: makePromptTitle(text),
-    text,
-    timestamp: new Date().toISOString(),
-    sourceUrl: tab && tab.url || '',
-    sourceTitle: tab && tab.title || ''
+  await folderStore.mutate((folders) => {
+    const inbox = getOrCreateInbox(folders);
+    inbox.prompts.unshift({
+      id: createId(),
+      title: makePromptTitle(text),
+      text,
+      timestamp: new Date().toISOString(),
+      sourceUrl: tab && tab.url || '',
+      sourceTitle: tab && tab.title || ''
+    });
   });
 
-  await saveFolders(folders);
   await buildContextMenu();
   showToast('已保存到“收件箱”');
 }
@@ -164,22 +186,22 @@ async function savePromptDraftToFolder(draft) {
   const text = normalizePromptText(draft && draft.text);
   if (!text) throw new Error('提示词内容不能为空');
 
-  const folders = await getFolders();
-  const targetFolder = getFolderForDraft(folders, draft && draft.folderId);
-  const createdAt = nowIso();
-  targetFolder.prompts.unshift({
-    id: createId(),
-    title: String(draft.title || '').trim() || makePromptTitle(text),
-    text,
-    timestamp: createdAt,
-    sourceUrl: draft.sourceUrl || '',
-    sourceTitle: draft.sourceTitle || '',
-    pinned: !!draft.pinned,
-    pinnedAt: draft.pinned ? createdAt : '',
-    quickAt: createdAt
+  await folderStore.mutate((folders) => {
+    const targetFolder = getFolderForDraft(folders, draft && draft.folderId);
+    const createdAt = nowIso();
+    targetFolder.prompts.unshift({
+      id: createId(),
+      title: String(draft.title || '').trim() || makePromptTitle(text),
+      text,
+      timestamp: createdAt,
+      sourceUrl: draft.sourceUrl || '',
+      sourceTitle: draft.sourceTitle || '',
+      pinned: !!draft.pinned,
+      pinnedAt: draft.pinned ? createdAt : '',
+      quickAt: createdAt
+    });
   });
 
-  await saveFolders(folders);
   await chrome.storage.local.remove('pendingPromptSave');
   await buildContextMenu();
 }
@@ -941,9 +963,12 @@ function debouncedRebuild() {
 
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
-  const folders = await getFolders();
-  if (folders.length === 0) {
-    await saveFolders([{ id: createId(), name: DEFAULT_FOLDER_NAME, prompts: [] }]);
+  const state = await getFolderState();
+  if (state.folders.length === 0) {
+    await folderStore.commitSnapshot(
+      [{ id: createId(), name: DEFAULT_FOLDER_NAME, prompts: [] }],
+      state.revision
+    );
   }
   await buildContextMenu();
 });
@@ -1011,11 +1036,27 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'getFolders') {
-    getFolders().then(f => sendResponse({ folders: f }));
+    getFolderState()
+      .then(state => sendResponse({ success: true, folders: state.folders, revision: state.revision }))
+      .catch(e => sendResponse({ success: false, error: e.message }));
     return true;
   }
-  if (msg.action === 'saveFolders') {
-    saveFolders(msg.folders).then(() => { debouncedRebuild(); sendResponse({ success: true }); }).catch(e => sendResponse({ success: false, error: e.message }));
+  if (msg.action === 'commitFolders' || msg.action === 'saveFolders') {
+    folderStore.commitSnapshot(msg.folders, msg.expectedRevision)
+      .then(result => {
+        if (!result.conflict) debouncedRebuild();
+        sendResponse({ success: true, ...result });
+      })
+      .catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+  if (msg.action === 'addFolder') {
+    addFolder(msg.name)
+      .then(result => {
+        debouncedRebuild();
+        sendResponse({ success: true, ...result });
+      })
+      .catch(e => sendResponse({ success: false, error: e.message }));
     return true;
   }
   if (msg.action === 'savePromptDraft') {
