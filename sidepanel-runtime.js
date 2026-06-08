@@ -1,19 +1,10 @@
 /* PromptPocket side panel shared runtime helpers. */
 
 function sendFolderMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message || '请求失败'));
-        return;
-      }
-      if (!response || !response.success) {
-        reject(new Error(response && response.error || '请求失败'));
-        return;
-      }
-      resolve(response);
-    });
-  });
+  return PromptPocketFolderMessageContract.sendRuntimeMessage(
+    chrome.runtime,
+    message
+  );
 }
 
 async function requestFolderState() {

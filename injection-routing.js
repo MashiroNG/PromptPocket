@@ -99,10 +99,45 @@
     };
   }
 
+  function sendInjectionMessageWithRetry(
+    { tabs, runtime, schedule },
+    { tabId, message, attempts, delayMs, frameId }
+  ) {
+    const maxAttempts = Number.isInteger(attempts) && attempts > 0 ? attempts : 1;
+    const scheduleRetry = typeof schedule === 'function' ? schedule : setTimeout;
+
+    return new Promise((resolve) => {
+      let count = 0;
+
+      const trySend = () => {
+        count += 1;
+        tabs.sendMessage(
+          tabId,
+          message,
+          createSendMessageOptions(frameId),
+          (response) => {
+            if (runtime.lastError) {
+              if (count < maxAttempts) {
+                scheduleRetry(trySend, delayMs || 400);
+                return;
+              }
+              resolve(false);
+              return;
+            }
+            resolve(!!(response && response.success === true));
+          }
+        );
+      };
+
+      trySend();
+    });
+  }
+
   return {
     getPlatformFromUrl,
     createInjectionRequest,
     createSendMessageOptions,
-    createInjectionMessageHandler
+    createInjectionMessageHandler,
+    sendInjectionMessageWithRetry
   };
 });

@@ -2,20 +2,12 @@ let currentDraft = null;
 let folders = [];
 const DEFAULT_FOLDER_NAME = '收件箱';
 
-function sendFolderMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message || '请求失败'));
-        return;
-      }
-      if (!response || !response.success) {
-        reject(new Error(response && response.error || '请求失败'));
-        return;
-      }
-      resolve(response);
-    });
-  });
+function sendFolderMessage(message, options) {
+  return PromptPocketFolderMessageContract.sendRuntimeMessage(
+    chrome.runtime,
+    message,
+    options
+  );
 }
 
 function applyTheme(theme) {
@@ -126,17 +118,12 @@ async function saveDraft() {
     folderId
   };
 
-  chrome.runtime.sendMessage({ action: 'savePromptDraft', draft }, (response) => {
-    if (chrome.runtime.lastError) {
-      showError(chrome.runtime.lastError.message || '保存失败。');
-      return;
-    }
-    if (!response || !response.success) {
-      showError(response && response.error || '保存失败。');
-      return;
-    }
-    window.close();
-  });
+  sendFolderMessage(
+    { action: 'savePromptDraft', draft },
+    { defaultError: '保存失败。' }
+  )
+    .then(() => window.close())
+    .catch((error) => showError(error.message || '保存失败。'));
 }
 
 document.getElementById('saveBtn').addEventListener('click', saveDraft);

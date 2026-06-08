@@ -1,6 +1,11 @@
 /* Right-Click Prompt (Local) - background service worker. No auth, no cloud. */
 
-importScripts('sidepanel-logic.js', 'folder-store.js', 'injection-routing.js');
+importScripts(
+  'sidepanel-logic.js',
+  'folder-store.js',
+  'folder-message-contract.js',
+  'injection-routing.js'
+);
 
 const MENU_ROOT = 'rcp_root';
 const AI_MENU_ROOT = 'ai_selection_root';
@@ -532,22 +537,14 @@ async function handleAiOnSelectionClick(promptId, targetId, selectionText) {
 }
 
 function sendMessageWithRetry(tabId, message, attempts, delayMs, frameId) {
-  return new Promise((resolve) => {
-    let count = 0;
-    const trySend = () => {
-      count += 1;
-      const callback = (resp) => {
-        if (chrome.runtime.lastError) {
-          if (count < attempts) return setTimeout(trySend, delayMs || 400);
-          return resolve(false);
-        }
-        resolve(resp && resp.success === true);
-      };
-      const options = PromptPocketInjectionRouting.createSendMessageOptions(frameId);
-      chrome.tabs.sendMessage(tabId, message, options, callback);
-    };
-    trySend();
-  });
+  return PromptPocketInjectionRouting.sendInjectionMessageWithRetry(
+    {
+      tabs: chrome.tabs,
+      runtime: chrome.runtime,
+      schedule: setTimeout
+    },
+    { tabId, message, attempts, delayMs, frameId }
+  );
 }
 
 async function copyPromptFallback(text, url) {
@@ -680,35 +677,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
+const folderMessageHandler = PromptPocketFolderMessageContract.createFolderMessageHandler({
+  folderStore,
+  addFolder,
+  savePromptDraft: savePromptDraftToFolder,
+  onFoldersChanged: debouncedRebuild
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === 'getFolders') {
-    getFolderState()
-      .then(state => sendResponse({ success: true, folders: state.folders, revision: state.revision }))
-      .catch(e => sendResponse({ success: false, error: e.message }));
-    return true;
-  }
-  if (msg.action === 'commitFolders' || msg.action === 'saveFolders') {
-    folderStore.commitSnapshot(msg.folders, msg.expectedRevision)
-      .then(result => {
-        if (!result.conflict) debouncedRebuild();
-        sendResponse({ success: true, ...result });
-      })
-      .catch(e => sendResponse({ success: false, error: e.message }));
-    return true;
-  }
-  if (msg.action === 'addFolder') {
-    addFolder(msg.name)
-      .then(result => {
-        debouncedRebuild();
-        sendResponse({ success: true, ...result });
-      })
-      .catch(e => sendResponse({ success: false, error: e.message }));
-    return true;
-  }
-  if (msg.action === 'savePromptDraft') {
-    savePromptDraftToFolder(msg.draft).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: e.message }));
-    return true;
-  }
+  if (folderMessageHandler(msg, sender, sendResponse)) return true;
   if (msg.action === 'openSaveSelection') {
     const tab = sender && sender.tab || null;
     openSaveSelectionWindow(msg.text || '', tab, msg.geometry).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: e.message }));
