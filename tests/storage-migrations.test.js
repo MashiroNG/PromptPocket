@@ -92,6 +92,127 @@ async function run() {
 
   {
     const storage = createMemoryStorage({
+      folders: 'not-an-array',
+      foldersRevision: 6
+    });
+
+    await createMigrator(storage).ensureMigrated();
+
+    assert.deepEqual(storage.getState().folders, []);
+    assert.equal(storage.getState().foldersRevision, 7);
+    assert.equal(storage.getState().storageSchemaVersion, 1);
+  }
+
+  {
+    const originalFolder = {
+      id: 'folder_a',
+      name: '',
+      prompts: [
+        { id: 'prompt_a', title: '', pinned: 'legacy' },
+        null,
+        'invalid prompt'
+      ]
+    };
+    const storage = createMemoryStorage({
+      folders: [originalFolder, null, 'invalid folder'],
+      foldersRevision: 2
+    });
+
+    await createMigrator(
+      storage,
+      folders => logic.sanitizeFolders(folders, idFactory())
+    ).ensureMigrated();
+
+    const migratedFolders = storage.getState().folders;
+    assert.deepEqual(migratedFolders[0], {
+      ...originalFolder,
+      prompts: [
+        originalFolder.prompts[0],
+        {
+          id: 'generated_1',
+          title: '未命名提示词',
+          text: '',
+          sourceUrl: '',
+          sourceTitle: '',
+          pinned: false,
+          pinnedAt: '',
+          quickAt: '',
+          timestamp: migratedFolders[0].prompts[1].timestamp
+        },
+        {
+          id: 'generated_2',
+          title: '未命名提示词',
+          text: '',
+          sourceUrl: '',
+          sourceTitle: '',
+          pinned: false,
+          pinnedAt: '',
+          quickAt: '',
+          timestamp: migratedFolders[0].prompts[2].timestamp
+        }
+      ]
+    });
+    assert.deepEqual(migratedFolders[1], {
+      id: 'generated_3',
+      name: '导入的文件夹',
+      prompts: []
+    });
+    assert.deepEqual(migratedFolders[2], {
+      id: 'generated_4',
+      name: '导入的文件夹',
+      prompts: []
+    });
+    assert.equal(migratedFolders.length, 3);
+    assert.equal(storage.getState().foldersRevision, 3);
+  }
+
+  {
+    const initialState = {
+      folders: [{ id: 'folder_a', name: 'Existing', prompts: [] }],
+      foldersRevision: 2
+    };
+    const storage = createMemoryStorage(initialState);
+    const migrator = createMigrator(storage, () => ({
+      changed: true,
+      folders: []
+    }));
+
+    await assert.rejects(
+      migrator.ensureMigrated(),
+      /Sanitized folders length does not match source folders length/
+    );
+    assert.equal(storage.getWrites(), 0);
+    assert.deepEqual(storage.getState(), initialState);
+  }
+
+  {
+    const initialState = {
+      folders: [{
+        id: 'folder_a',
+        name: 'Existing',
+        prompts: [{ id: 'prompt_a', title: 'Prompt', text: 'Text' }]
+      }],
+      foldersRevision: 2
+    };
+    const storage = createMemoryStorage(initialState);
+    const migrator = createMigrator(storage, folders => ({
+      changed: true,
+      folders: [{
+        ...folders[0],
+        prompts: []
+      }]
+    }));
+
+    await assert.rejects(
+      migrator.ensureMigrated(),
+      /Sanitized prompts length does not match source prompts length/
+    );
+    assert.equal(storage.getWrites(), 0);
+    assert.deepEqual(storage.getState(), initialState);
+  }
+
+  {
+    const storage = createMemoryStorage({
       folders: [],
       foldersRevision: 0,
       original: true
@@ -163,6 +284,24 @@ async function run() {
     assert.equal(storage.getState().storageSchemaVersion, 1);
     assert.equal(storage.getState().foldersRevision, 7);
     assert.deepEqual(storage.getState().folders, folders);
+  }
+
+  {
+    const folders = [{
+      id: 'folder_a',
+      name: 'Existing',
+      prompts: [{ id: 'prompt_a', title: 'Prompt', text: 'Text' }]
+    }];
+    const storage = createMemoryStorage({
+      folders,
+      foldersRevision: 'invalid'
+    });
+
+    await createMigrator(storage).ensureMigrated();
+
+    assert.deepEqual(storage.getState().folders, folders);
+    assert.equal(storage.getState().foldersRevision, 0);
+    assert.equal(storage.getState().storageSchemaVersion, 1);
   }
 
   {
@@ -252,6 +391,30 @@ async function run() {
     await assert.rejects(migrator.ensureMigrated(), /sanitize failed/);
     assert.equal(storage.getWrites(), 0);
     assert.equal(storage.getState().storageSchemaVersion, undefined);
+  }
+
+  {
+    const storage = createMemoryStorage({
+      folders: [{ id: 'bad id', name: 'Legacy', prompts: [] }],
+      foldersRevision: 0
+    });
+    let attempts = 0;
+    const migrator = createMigrator(storage, (folders) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('temporary sanitize failure');
+      return logic.sanitizeFolders(folders, idFactory());
+    });
+
+    await assert.rejects(
+      migrator.ensureMigrated(),
+      /temporary sanitize failure/
+    );
+    await migrator.ensureMigrated();
+
+    assert.equal(attempts, 2);
+    assert.equal(storage.getReads(), 2);
+    assert.equal(storage.getWrites(), 1);
+    assert.equal(storage.getState().storageSchemaVersion, 1);
   }
 
   {

@@ -14,13 +14,29 @@
     return Number.isSafeInteger(value) && value >= 0 ? value : 0;
   }
 
+  function isObjectRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
   function applySanitizedIds(folders, sanitizedFolders) {
+    if (!Array.isArray(sanitizedFolders) || sanitizedFolders.length !== folders.length) {
+      throw new Error('Sanitized folders length does not match source folders length');
+    }
+
     return folders.map((folder, folderIndex) => {
       const sanitizedFolder = sanitizedFolders[folderIndex];
+      if (!isObjectRecord(folder)) return sanitizedFolder;
+
       const nextFolder = { ...folder, id: sanitizedFolder.id };
-      if (Array.isArray(folder && folder.prompts)) {
+      if (Array.isArray(folder.prompts)) {
+        if (
+          !Array.isArray(sanitizedFolder.prompts) ||
+          sanitizedFolder.prompts.length !== folder.prompts.length
+        ) {
+          throw new Error('Sanitized prompts length does not match source prompts length');
+        }
         nextFolder.prompts = folder.prompts.map((prompt, promptIndex) => ({
-          ...prompt,
+          ...(isObjectRecord(prompt) ? prompt : sanitizedFolder.prompts[promptIndex]),
           id: sanitizedFolder.prompts[promptIndex].id
         }));
       }
@@ -30,12 +46,21 @@
 
   function createVersionZeroMigration(sanitizeFolders) {
     return function migrateVersionZero(snapshot) {
-      const normalized = sanitizeFolders(snapshot.folders);
-      if (!normalized.changed) return {};
-      return {
-        folders: applySanitizedIds(snapshot.folders, normalized.folders),
-        foldersRevision: normalizeRevision(snapshot.foldersRevision) + 1
-      };
+      const folders = Array.isArray(snapshot.folders) ? snapshot.folders : [];
+      const normalized = sanitizeFolders(folders);
+      const migratedFolders = applySanitizedIds(folders, normalized.folders);
+      const foldersChanged = !Array.isArray(snapshot.folders) || normalized.changed;
+      const revision = normalizeRevision(snapshot.foldersRevision);
+      const revisionChanged = revision !== snapshot.foldersRevision;
+      const changes = {};
+
+      if (foldersChanged) {
+        changes.folders = migratedFolders;
+        changes.foldersRevision = revision + 1;
+      } else if (revisionChanged) {
+        changes.foldersRevision = revision;
+      }
+      return changes;
     };
   }
 
