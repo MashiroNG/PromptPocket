@@ -3,6 +3,6 @@
   "version": "1.1.5",
   "private": true,
   "scripts": {
-    "test": "node tests/logic.test.js && node tests/folder-store.test.js && node tests/sidepanel-save-logic.test.js && node tests/injection-routing.test.js && node tests/folder-message-contract.test.js && node tests/injection-message-contract.test.js"
+    "test": "node tests/logic.test.js && node tests/folder-store.test.js && node tests/storage-migrations.test.js && node tests/sidepanel-save-logic.test.js && node tests/injection-routing.test.js && node tests/folder-message-contract.test.js && node tests/injection-message-contract.test.js"
   }
 }

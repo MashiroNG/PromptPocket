@@ -2,6 +2,7 @@
 
 importScripts(
   'sidepanel-logic.js',
+  'storage-migrations.js',
   'folder-store.js',
   'folder-message-contract.js',
   'injection-routing.js'
@@ -19,12 +20,30 @@ const MAX_PINNED_PROMPTS = 12;
 const SAVE_POPUP_WIDTH = 640;
 const SAVE_POPUP_HEIGHT = 760;
 
+const storageMigrator = PromptPocketStorageMigrations.createStorageMigrator({
+  storage: {
+    get: defaults => chrome.storage.local.get(defaults),
+    set: changes => chrome.storage.local.set(changes)
+  },
+  sanitizeFolders: folders => PromptPocketLogic.sanitizeFolders(folders)
+});
+
+function ensureStorageMigrated() {
+  return storageMigrator.ensureMigrated();
+}
+
+ensureStorageMigrated().catch((error) => {
+  console.warn('PromptPocket storage migration failed:', error);
+});
+
 const folderStore = promptPocketFolderStore.createFolderStore({
   readState: async () => {
+    await ensureStorageMigrated();
     const saved = await chrome.storage.local.get({ folders: [], foldersRevision: 0 });
     return { folders: saved.folders, revision: saved.foldersRevision };
   },
   writeState: async ({ folders, revision }) => {
+    await ensureStorageMigrated();
     try {
       await chrome.storage.local.set({ folders, foldersRevision: revision });
     } catch (error) {
