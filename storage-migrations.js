@@ -85,13 +85,30 @@
     });
   }
 
+  function haveFoldersChanged(sourceFolders, folders, sanitizedFolders) {
+    if (!Array.isArray(sourceFolders)) return true;
+    return folders.some((folder, folderIndex) => {
+      const sanitizedFolder = sanitizedFolders[folderIndex];
+      if (!isObjectRecord(folder) || folder.id !== sanitizedFolder.id) return true;
+      if (!Array.isArray(folder.prompts)) return false;
+      return folder.prompts.some((prompt, promptIndex) => (
+        !isObjectRecord(prompt) ||
+        prompt.id !== sanitizedFolder.prompts[promptIndex].id
+      ));
+    });
+  }
+
   function createVersionZeroMigration(sanitizeFolders, isSafeId) {
     return function migrateVersionZero(snapshot) {
       const folders = Array.isArray(snapshot.folders) ? snapshot.folders : [];
       const normalized = sanitizeFolders(folders);
       validateSanitizedFolders(folders, normalized.folders, isSafeId);
       const migratedFolders = applySanitizedIds(folders, normalized.folders);
-      const foldersChanged = !Array.isArray(snapshot.folders) || normalized.changed;
+      const foldersChanged = haveFoldersChanged(
+        snapshot.folders,
+        folders,
+        normalized.folders
+      );
       const revision = normalizeRevision(snapshot.foldersRevision);
       const revisionChanged = revision !== snapshot.foldersRevision;
       const changes = {};

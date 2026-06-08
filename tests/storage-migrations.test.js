@@ -96,6 +96,35 @@ async function run() {
 
   {
     const storage = createMemoryStorage({
+      folders: [{
+        id: 'unsafe folder id',
+        name: 'Legacy',
+        prompts: [{ id: 'unsafe prompt id', title: 'Prompt' }]
+      }],
+      foldersRevision: 4
+    });
+    const migrator = createMigrator(storage, () => ({
+      changed: false,
+      folders: [{
+        id: 'safe_folder',
+        name: 'Legacy',
+        prompts: [{ id: 'safe_prompt', title: 'Prompt' }]
+      }]
+    }));
+
+    await migrator.ensureMigrated();
+
+    assert.deepEqual(storage.getState().folders, [{
+      id: 'safe_folder',
+      name: 'Legacy',
+      prompts: [{ id: 'safe_prompt', title: 'Prompt' }]
+    }]);
+    assert.equal(storage.getState().foldersRevision, 5);
+    assert.equal(storage.getState().storageSchemaVersion, 1);
+  }
+
+  {
+    const storage = createMemoryStorage({
       folders: 'not-an-array',
       foldersRevision: 6
     });
