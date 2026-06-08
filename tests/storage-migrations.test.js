@@ -43,22 +43,31 @@ async function run() {
   assert.equal(STORAGE_SCHEMA_VERSION_KEY, 'storageSchemaVersion');
 
   {
+    const originalFolders = [{
+      id: 'unsafe folder id',
+      name: 'Legacy',
+      customFolderField: 'keep',
+      prompts: [{
+        id: 'duplicate',
+        title: '',
+        pinned: 'legacy-truthy',
+        timestamp: '2019-03-04T05:06:07.000Z',
+        customPromptField: 'keep'
+      }, {
+        id: 'duplicate',
+        text: '',
+        pinned: 0
+      }, {
+        id: 'unsafe prompt id',
+        legacyOnly: true
+      }]
+    }, {
+      id: 'folder_without_prompts',
+      name: '',
+      customFolderField: null
+    }];
     const storage = createMemoryStorage({
-      folders: [{
-        id: 'unsafe folder id',
-        name: 'Legacy',
-        customFolderField: 'keep',
-        prompts: [{
-          id: 'duplicate',
-          title: 'First',
-          text: 'one',
-          customPromptField: 'keep'
-        }, {
-          id: 'duplicate',
-          title: 'Second',
-          text: 'two'
-        }]
-      }],
+      folders: originalFolders,
       foldersRevision: 4,
       unrelatedSetting: true
     });
@@ -70,14 +79,75 @@ async function run() {
     await migrator.ensureMigrated();
 
     const state = storage.getState();
+    const expectedFolders = structuredClone(originalFolders);
+    expectedFolders[0].id = 'generated_1';
+    expectedFolders[0].prompts[1].id = 'generated_2';
+    expectedFolders[0].prompts[2].id = 'generated_3';
+
     assert.equal(state.storageSchemaVersion, 1);
     assert.equal(state.foldersRevision, 5);
-    assert.equal(state.folders[0].id, 'generated_1');
-    assert.equal(state.folders[0].prompts[0].id, 'duplicate');
-    assert.equal(state.folders[0].prompts[1].id, 'generated_2');
-    assert.equal(state.folders[0].customFolderField, 'keep');
-    assert.equal(state.folders[0].prompts[0].customPromptField, 'keep');
+    assert.deepEqual(state.folders, expectedFolders);
     assert.equal(state.unrelatedSetting, true);
+  }
+
+  {
+    const storage = createMemoryStorage({
+      folders: [],
+      foldersRevision: 0,
+      original: true
+    });
+    const calls = [];
+    const migrator = createStorageMigrator({
+      storage,
+      currentVersion: 2,
+      migrations: {
+        0: (snapshot) => {
+          calls.push(`0->1@${snapshot.storageSchemaVersion}`);
+          return { firstStep: true };
+        },
+        1: (snapshot) => {
+          calls.push(`1->2@${snapshot.storageSchemaVersion}`);
+          assert.equal(snapshot.firstStep, true);
+          return { secondStep: true };
+        }
+      }
+    });
+
+    await migrator.ensureMigrated();
+
+    assert.deepEqual(calls, ['0->1@0', '1->2@1']);
+    assert.equal(storage.getWrites(), 1);
+    assert.deepEqual(storage.getState(), {
+      folders: [],
+      foldersRevision: 0,
+      original: true,
+      firstStep: true,
+      secondStep: true,
+      storageSchemaVersion: 2
+    });
+  }
+
+  {
+    const initialState = {
+      folders: [],
+      foldersRevision: 0,
+      original: true
+    };
+    const storage = createMemoryStorage(initialState);
+    const migrator = createStorageMigrator({
+      storage,
+      currentVersion: 2,
+      migrations: {
+        0: () => ({ firstStep: true })
+      }
+    });
+
+    await assert.rejects(
+      migrator.ensureMigrated(),
+      /Missing storage migration from version 1 to 2/
+    );
+    assert.equal(storage.getWrites(), 0);
+    assert.deepEqual(storage.getState(), initialState);
   }
 
   {
