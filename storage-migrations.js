@@ -11,7 +11,11 @@
   }
 
   function normalizeSchemaVersion(value) {
-    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+    if (value === undefined) return 0;
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`Invalid storage schema version: ${String(value)}`);
+    }
+    return value;
   }
 
   function isObjectRecord(value) {
@@ -137,12 +141,16 @@
       : migrations;
 
     async function migrate() {
-      const saved = await storage.get({
+      const stored = await storage.getAll();
+      const storedVersion = normalizeSchemaVersion(
+        stored && stored[STORAGE_SCHEMA_VERSION_KEY]
+      );
+      const saved = {
         folders: [],
         foldersRevision: 0,
-        [STORAGE_SCHEMA_VERSION_KEY]: 0
-      });
-      const storedVersion = normalizeSchemaVersion(saved[STORAGE_SCHEMA_VERSION_KEY]);
+        ...(stored || {}),
+        [STORAGE_SCHEMA_VERSION_KEY]: storedVersion
+      };
 
       if (storedVersion > currentVersion) {
         throw new Error(

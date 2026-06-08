@@ -12,18 +12,21 @@ function createMemoryStorage(initialState, options = {}) {
   let state = structuredClone(initialState);
   let reads = 0;
   let writes = 0;
+  let lastChanges;
 
   return {
-    get: async (defaults) => {
+    getAll: async () => {
       reads += 1;
       if (options.readDelay) await options.readDelay();
-      return { ...structuredClone(defaults), ...structuredClone(state) };
+      return structuredClone(state);
     },
     set: async (changes) => {
       writes += 1;
+      lastChanges = structuredClone(changes);
       state = { ...state, ...structuredClone(changes) };
     },
     getState: () => structuredClone(state),
+    getLastChanges: () => structuredClone(lastChanges),
     getReads: () => reads,
     getWrites: () => writes
   };
@@ -351,6 +354,39 @@ async function run() {
   }
 
   {
+    const storage = createMemoryStorage({
+      storageSchemaVersion: 1,
+      aiTargets: [{ id: 'target_a', name: 'Old' }],
+      unknownFutureKey: { keep: true }
+    });
+    const migrator = createStorageMigrator({
+      storage,
+      currentVersion: 2,
+      migrations: {
+        1: (snapshot) => {
+          assert.deepEqual(snapshot.aiTargets, [{ id: 'target_a', name: 'Old' }]);
+          assert.deepEqual(snapshot.unknownFutureKey, { keep: true });
+          return {
+            aiTargets: snapshot.aiTargets.map(target => ({
+              ...target,
+              name: 'Migrated'
+            }))
+          };
+        }
+      }
+    });
+
+    await migrator.ensureMigrated();
+
+    assert.equal(storage.getWrites(), 1);
+    assert.deepEqual(storage.getLastChanges(), {
+      aiTargets: [{ id: 'target_a', name: 'Migrated' }],
+      storageSchemaVersion: 2
+    });
+    assert.deepEqual(storage.getState().unknownFutureKey, { keep: true });
+  }
+
+  {
     const initialState = {
       folders: [],
       foldersRevision: 0,
@@ -469,6 +505,24 @@ async function run() {
   }
 
   {
+    for (const invalidVersion of ['2', null, -1, 1.5]) {
+      const initialState = {
+        storageSchemaVersion: invalidVersion,
+        folders: [],
+        foldersRevision: 0
+      };
+      const storage = createMemoryStorage(initialState);
+
+      await assert.rejects(
+        createMigrator(storage).ensureMigrated(),
+        /Invalid storage schema version/
+      );
+      assert.equal(storage.getWrites(), 0);
+      assert.deepEqual(storage.getState(), initialState);
+    }
+  }
+
+  {
     const storage = createMemoryStorage({
       storageSchemaVersion: 1,
       folders: [],
@@ -533,11 +587,35 @@ async function run() {
     assert.ok(folderStoreImport > migrationImport);
     assert.match(
       background,
-      /readState:\s*async\s*\(\)\s*=>\s*\{\s*await ensureStorageMigrated\(\);/
+      /getAll:\s*\(\)\s*=>\s*chrome\.storage\.local\.get\(null\)/
     );
     assert.match(
       background,
-      /writeState:\s*async\s*\(\{ folders, revision \}\)\s*=>\s*\{\s*await ensureStorageMigrated\(\);/
+      /const migratedStorage = \{[\s\S]*get:\s*async[\s\S]*await ensureStorageMigrated\(\);[\s\S]*rawStorage\.get/
+    );
+    assert.match(
+      background,
+      /const migratedStorage = \{[\s\S]*set:\s*async[\s\S]*await ensureStorageMigrated\(\);[\s\S]*rawStorage\.set/
+    );
+    assert.match(
+      background,
+      /const migratedStorage = \{[\s\S]*remove:\s*async[\s\S]*await ensureStorageMigrated\(\);[\s\S]*rawStorage\.remove/
+    );
+
+    const rawChromeStorageCalls = background.match(
+      /chrome\.storage\.local\.(?:get|set|remove)/g
+    ) || [];
+    assert.equal(rawChromeStorageCalls.length, 4);
+    const rawStorageStart = background.indexOf('const rawStorage = {');
+    const rawStorageEnd = background.indexOf('\n};', rawStorageStart);
+    const rawStorageBlock = background.slice(rawStorageStart, rawStorageEnd);
+    assert.equal(
+      (rawStorageBlock.match(/chrome\.storage\.local\.(?:get|set|remove)/g) || []).length,
+      4
+    );
+    assert.doesNotMatch(
+      background.slice(rawStorageEnd + 3),
+      /chrome\.storage\.local\.(?:get|set|remove)/
     );
   }
 

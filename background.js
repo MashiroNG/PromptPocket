@@ -20,10 +20,17 @@ const MAX_PINNED_PROMPTS = 12;
 const SAVE_POPUP_WIDTH = 640;
 const SAVE_POPUP_HEIGHT = 760;
 
+const rawStorage = {
+  getAll: () => chrome.storage.local.get(null),
+  get: keys => chrome.storage.local.get(keys),
+  set: changes => chrome.storage.local.set(changes),
+  remove: keys => chrome.storage.local.remove(keys)
+};
+
 const storageMigrator = PromptPocketStorageMigrations.createStorageMigrator({
   storage: {
-    get: defaults => chrome.storage.local.get(defaults),
-    set: changes => chrome.storage.local.set(changes)
+    getAll: rawStorage.getAll,
+    set: rawStorage.set
   },
   sanitizeFolders: folders => PromptPocketLogic.sanitizeFolders(folders),
   isSafeId: id => PromptPocketLogic.isSafeId(id)
@@ -37,16 +44,29 @@ ensureStorageMigrated().catch((error) => {
   console.warn('PromptPocket storage migration failed:', error);
 });
 
+const migratedStorage = {
+  get: async (keys) => {
+    await ensureStorageMigrated();
+    return rawStorage.get(keys);
+  },
+  set: async (changes) => {
+    await ensureStorageMigrated();
+    return rawStorage.set(changes);
+  },
+  remove: async (keys) => {
+    await ensureStorageMigrated();
+    return rawStorage.remove(keys);
+  }
+};
+
 const folderStore = promptPocketFolderStore.createFolderStore({
   readState: async () => {
-    await ensureStorageMigrated();
-    const saved = await chrome.storage.local.get({ folders: [], foldersRevision: 0 });
+    const saved = await migratedStorage.get({ folders: [], foldersRevision: 0 });
     return { folders: saved.folders, revision: saved.foldersRevision };
   },
   writeState: async ({ folders, revision }) => {
-    await ensureStorageMigrated();
     try {
-      await chrome.storage.local.set({ folders, foldersRevision: revision });
+      await migratedStorage.set({ folders, foldersRevision: revision });
     } catch (error) {
       throw new Error(formatStorageError(error));
     }
@@ -160,7 +180,7 @@ async function openSaveSelectionWindow(selectionText, tab, geometry) {
   }
 
   try {
-    await chrome.storage.local.set({
+    await migratedStorage.set({
       pendingPromptSave: {
         id: createId(),
         title: makePromptTitle(text),
@@ -227,7 +247,7 @@ async function savePromptDraftToFolder(draft) {
     });
   });
 
-  await chrome.storage.local.remove('pendingPromptSave');
+  await migratedStorage.remove('pendingPromptSave');
   await buildContextMenu();
 }
 
@@ -252,7 +272,7 @@ function findPromptById(folders, promptId) {
 }
 
 async function getAiSelectionConfig() {
-  const { aiOnSelectionEnabled, aiTargets, selectionPrompts } = await chrome.storage.local.get({
+  const { aiOnSelectionEnabled, aiTargets, selectionPrompts } = await migratedStorage.get({
     aiOnSelectionEnabled: true,
     aiTargets: [],
     selectionPrompts: []
@@ -579,7 +599,7 @@ async function copyPromptFallback(text, url) {
 }
 
 async function handlePromptCopy(promptId, text) {
-  const { autoPaste } = await chrome.storage.local.get({ autoPaste: false });
+  const { autoPaste } = await migratedStorage.get({ autoPaste: false });
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const tabId = tab && tab.id;
   const url = tab && tab.url || '';
@@ -596,7 +616,7 @@ async function handlePromptCopy(promptId, text) {
 }
 
 async function handleSelectionCommandCopy(text, tab, frameId) {
-  const { autoPaste } = await chrome.storage.local.get({ autoPaste: false });
+  const { autoPaste } = await migratedStorage.get({ autoPaste: false });
   const activeTab = tab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   const tabId = activeTab && activeTab.id;
   const url = activeTab && activeTab.url || '';
@@ -681,7 +701,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const found = findPromptById(folders, promptMatch);
     if (found) {
       const { prompt } = found;
-      const { autoPaste } = await chrome.storage.local.get({ autoPaste: false });
+      const { autoPaste } = await migratedStorage.get({ autoPaste: false });
       const url = tab && tab.url || '';
       const restricted = /^(chrome|chrome-extension|devtools|edge|about|centbrowser):/i.test(url);
       if (autoPaste && tab && tab.id && !restricted) {
@@ -727,15 +747,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.action === 'enableAutoPaste') {
-    chrome.storage.local.set({ autoPaste: true }).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: formatStorageError(e) }));
+    migratedStorage.set({ autoPaste: true }).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: formatStorageError(e) }));
     return true;
   }
   if (msg.action === 'disableAutoPaste') {
-    chrome.storage.local.set({ autoPaste: false }).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: formatStorageError(e) }));
+    migratedStorage.set({ autoPaste: false }).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: formatStorageError(e) }));
     return true;
   }
   if (msg.action === 'getAutoPaste') {
-    chrome.storage.local.get({ autoPaste: false }).then(o => sendResponse({ autoPaste: o.autoPaste }));
+    migratedStorage.get({ autoPaste: false }).then(o => sendResponse({ autoPaste: o.autoPaste }));
     return true;
   }
 });
