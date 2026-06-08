@@ -35,7 +35,11 @@ function idFactory() {
 }
 
 function createMigrator(storage, sanitizeFolders = logic.sanitizeFolders) {
-  return createStorageMigrator({ storage, sanitizeFolders });
+  return createStorageMigrator({
+    storage,
+    sanitizeFolders,
+    isSafeId: logic.isSafeId
+  });
 }
 
 async function run() {
@@ -183,6 +187,75 @@ async function run() {
     );
     assert.equal(storage.getWrites(), 0);
     assert.deepEqual(storage.getState(), initialState);
+  }
+
+  {
+    const invalidSanitizedFolders = [
+      {
+        label: 'folder string',
+        folders: ['invalid folder'],
+        error: /Sanitized folder at index 0 must be an object/
+      },
+      {
+        label: 'folder missing id',
+        folders: [{ name: 'Missing ID', prompts: [] }],
+        error: /Sanitized folder at index 0 has an invalid ID/
+      },
+      {
+        label: 'prompt missing id',
+        folders: [{
+          id: 'folder_a',
+          name: 'Folder',
+          prompts: [{ title: 'Missing ID' }]
+        }],
+        error: /Sanitized prompt at folder 0 index 0 has an invalid ID/
+      },
+      {
+        label: 'duplicate prompt id',
+        folders: [{
+          id: 'folder_a',
+          name: 'Folder',
+          prompts: [
+            { id: 'prompt_a', title: 'First' },
+            { id: 'prompt_a', title: 'Second' }
+          ]
+        }],
+        error: /Sanitized prompt at folder 0 index 1 has a duplicate ID/
+      },
+      {
+        label: 'unsafe prompt id',
+        folders: [{
+          id: 'folder_a',
+          name: 'Folder',
+          prompts: [{ id: 'unsafe prompt id', title: 'Unsafe' }]
+        }],
+        error: /Sanitized prompt at folder 0 index 0 has an invalid ID/
+      }
+    ];
+
+    for (const testCase of invalidSanitizedFolders) {
+      const sourcePrompts = testCase.label === 'duplicate prompt id'
+        ? [{ id: 'old_a' }, { id: 'old_b' }]
+        : (testCase.label.includes('prompt') ? [{ id: 'old_a' }] : []);
+      const initialState = {
+        folders: [{ id: 'folder_a', name: 'Existing', prompts: sourcePrompts }],
+        foldersRevision: 2
+      };
+      const storage = createMemoryStorage(initialState);
+      const migrator = createMigrator(storage, () => ({
+        changed: true,
+        folders: testCase.folders
+      }));
+
+      await assert.rejects(migrator.ensureMigrated(), testCase.error);
+      assert.equal(storage.getWrites(), 0, testCase.label);
+      assert.deepEqual(storage.getState(), initialState, testCase.label);
+      assert.equal(
+        storage.getState().storageSchemaVersion,
+        undefined,
+        testCase.label
+      );
+    }
   }
 
   {

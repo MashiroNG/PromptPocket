@@ -18,23 +18,64 @@
     return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
-  function applySanitizedIds(folders, sanitizedFolders) {
+  function validateSanitizedFolders(folders, sanitizedFolders, isSafeId) {
     if (!Array.isArray(sanitizedFolders) || sanitizedFolders.length !== folders.length) {
       throw new Error('Sanitized folders length does not match source folders length');
     }
 
+    const folderIds = new Set();
+    const promptIds = new Set();
+    sanitizedFolders.forEach((folder, folderIndex) => {
+      if (!isObjectRecord(folder)) {
+        throw new Error(`Sanitized folder at index ${folderIndex} must be an object`);
+      }
+      if (!isSafeId(folder.id)) {
+        throw new Error(`Sanitized folder at index ${folderIndex} has an invalid ID`);
+      }
+      if (folderIds.has(folder.id)) {
+        throw new Error(`Sanitized folder at index ${folderIndex} has a duplicate ID`);
+      }
+      folderIds.add(folder.id);
+
+      if (!Array.isArray(folder.prompts)) {
+        throw new Error(`Sanitized folder at index ${folderIndex} must have a prompts array`);
+      }
+      const sourceFolder = folders[folderIndex];
+      const sourcePromptCount = isObjectRecord(sourceFolder) && Array.isArray(sourceFolder.prompts)
+        ? sourceFolder.prompts.length
+        : 0;
+      if (folder.prompts.length !== sourcePromptCount) {
+        throw new Error('Sanitized prompts length does not match source prompts length');
+      }
+
+      folder.prompts.forEach((prompt, promptIndex) => {
+        if (!isObjectRecord(prompt)) {
+          throw new Error(
+            `Sanitized prompt at folder ${folderIndex} index ${promptIndex} must be an object`
+          );
+        }
+        if (!isSafeId(prompt.id)) {
+          throw new Error(
+            `Sanitized prompt at folder ${folderIndex} index ${promptIndex} has an invalid ID`
+          );
+        }
+        if (promptIds.has(prompt.id)) {
+          throw new Error(
+            `Sanitized prompt at folder ${folderIndex} index ${promptIndex} has a duplicate ID`
+          );
+        }
+        promptIds.add(prompt.id);
+      });
+    });
+  }
+
+  function applySanitizedIds(folders, sanitizedFolders) {
     return folders.map((folder, folderIndex) => {
       const sanitizedFolder = sanitizedFolders[folderIndex];
       if (!isObjectRecord(folder)) return sanitizedFolder;
 
       const nextFolder = { ...folder, id: sanitizedFolder.id };
       if (Array.isArray(folder.prompts)) {
-        if (
-          !Array.isArray(sanitizedFolder.prompts) ||
-          sanitizedFolder.prompts.length !== folder.prompts.length
-        ) {
-          throw new Error('Sanitized prompts length does not match source prompts length');
-        }
         nextFolder.prompts = folder.prompts.map((prompt, promptIndex) => ({
           ...(isObjectRecord(prompt) ? prompt : sanitizedFolder.prompts[promptIndex]),
           id: sanitizedFolder.prompts[promptIndex].id
@@ -44,10 +85,11 @@
     });
   }
 
-  function createVersionZeroMigration(sanitizeFolders) {
+  function createVersionZeroMigration(sanitizeFolders, isSafeId) {
     return function migrateVersionZero(snapshot) {
       const folders = Array.isArray(snapshot.folders) ? snapshot.folders : [];
       const normalized = sanitizeFolders(folders);
+      validateSanitizedFolders(folders, normalized.folders, isSafeId);
       const migratedFolders = applySanitizedIds(folders, normalized.folders);
       const foldersChanged = !Array.isArray(snapshot.folders) || normalized.changed;
       const revision = normalizeRevision(snapshot.foldersRevision);
@@ -67,13 +109,14 @@
   function createStorageMigrator({
     storage,
     sanitizeFolders,
+    isSafeId,
     currentVersion = CURRENT_STORAGE_SCHEMA_VERSION,
     migrations
   }) {
     let inFlight = null;
     let migrated = false;
     const migrationSteps = migrations === undefined
-      ? { 0: createVersionZeroMigration(sanitizeFolders) }
+      ? { 0: createVersionZeroMigration(sanitizeFolders, isSafeId) }
       : migrations;
 
     async function migrate() {

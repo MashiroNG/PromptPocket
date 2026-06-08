@@ -25,7 +25,8 @@ const storageMigrator = PromptPocketStorageMigrations.createStorageMigrator({
     get: defaults => chrome.storage.local.get(defaults),
     set: changes => chrome.storage.local.set(changes)
   },
-  sanitizeFolders: folders => PromptPocketLogic.sanitizeFolders(folders)
+  sanitizeFolders: folders => PromptPocketLogic.sanitizeFolders(folders),
+  isSafeId: id => PromptPocketLogic.isSafeId(id)
 });
 
 function ensureStorageMigrated() {
