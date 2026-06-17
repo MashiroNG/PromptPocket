@@ -22,6 +22,7 @@
       <span class="tab-search-icon" aria-hidden="true">⌕</span>
       <input type="search" class="tab-search-input" id="promptSearch" placeholder="搜索标题、内容或文件夹" autocomplete="off" />
     </label>
+    <button type="button" class="tab-tool-btn" id="backupCenter">备份恢复</button>
     <button type="button" class="tab-tool-btn" id="cleanupData">清理数据</button>
   </div>
 
@@ -239,6 +240,21 @@
         <button type="button" class="btn danger" id="cleanupDuplicates">清理重复项</button>
         <button type="button" class="btn ghost" id="rescanCleanup">重新扫描</button>
         <button type="button" class="btn ghost" id="closeCleanup">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalBackupCenter" class="modal hidden">
+    <div class="modal-inner pinned-manager-modal backup-center-modal">
+      <h3>备份恢复</h3>
+      <div class="prompt-modal-subtitle">导入、恢复和清理前会自动保存最近 20 份本地备份。</div>
+      <div class="cleanup-summary" id="backupSummary"></div>
+      <div class="backup-list" id="backupList"></div>
+      <div class="cleanup-note">恢复前会自动再保存一份当前数据。覆盖恢复会替换当前文件夹，合并恢复会跳过重复提示词。</div>
+      <div class="buttons">
+        <button type="button" class="btn left" id="manualBackup">立即备份</button>
+        <button type="button" class="btn ghost" id="refreshBackups">刷新</button>
+        <button type="button" class="btn ghost" id="closeBackupCenter">关闭</button>
       </div>
     </div>
   </div>

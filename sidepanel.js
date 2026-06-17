@@ -18,8 +18,11 @@ let aiTargets = [];
 let selectionPrompts = [];
 let aiOnSelectionEnabled = true;
 let sidepanelTheme = 'dark';
+let promptBackups = [];
 const DEFAULT_FOLDER_NAME = '收件箱';
 const QUICK_SCOPE_MODES = new Set(['all', 'pinned', 'folder']);
+const PROMPT_BACKUPS_KEY = 'promptBackups';
+const MAX_PROMPT_BACKUPS = 20;
 const promptPocketLogic = globalThis.PromptPocketLogic;
 
 async function closeSidePanelFromShortcut() {
@@ -74,6 +77,8 @@ async function loadFolders() {
   if (quickModal && !quickModal.classList.contains('hidden')) renderQuickManager();
   const cleanupModal = document.getElementById('modalCleanup');
   if (cleanupModal && !cleanupModal.classList.contains('hidden')) renderCleanupTool();
+  const backupModal = document.getElementById('modalBackupCenter');
+  if (backupModal && !backupModal.classList.contains('hidden')) renderBackupCenter();
 }
 
 async function loadAiConfig() {
@@ -1477,12 +1482,60 @@ function exportToJson() {
   downloadJson(folders, 'PromptPocket-' + new Date().toISOString().slice(0, 10) + '.json');
 }
 
-function backupBeforeImport() {
-  downloadJson(folders, 'PromptPocket-导入前备份-' + formatBackupTime() + '.json');
+function normalizePromptBackups(backups) {
+  return promptPocketLogic.normalizePromptBackups(backups, { maxBackups: MAX_PROMPT_BACKUPS });
 }
 
-function backupBeforeCleanup() {
+async function loadPromptBackups() {
+  const saved = await chrome.storage.local.get({ [PROMPT_BACKUPS_KEY]: [] });
+  const normalized = normalizePromptBackups(saved[PROMPT_BACKUPS_KEY]);
+  promptBackups = normalized;
+  if (JSON.stringify(normalized) !== JSON.stringify(saved[PROMPT_BACKUPS_KEY] || [])) {
+    await savePromptBackups(normalized);
+  }
+  return promptBackups;
+}
+
+async function savePromptBackups(nextBackups = promptBackups) {
+  await chrome.storage.local.set({ [PROMPT_BACKUPS_KEY]: nextBackups });
+  promptBackups = nextBackups;
+}
+
+async function createStoredPromptBackup(source) {
+  const result = promptPocketLogic.addPromptBackup(promptBackups, folders, source, {
+    idFactory: uuid,
+    maxBackups: MAX_PROMPT_BACKUPS
+  });
+  await savePromptBackups(result.backups);
+  renderBackupCenter();
+  return result.backup;
+}
+
+async function backupBeforeImport() {
+  downloadJson(folders, 'PromptPocket-导入前备份-' + formatBackupTime() + '.json');
+  try {
+    await createStoredPromptBackup('import');
+  } catch (error) {
+    console.error('Failed to store import backup', error);
+  }
+}
+
+async function backupBeforeCleanup() {
   downloadJson(folders, 'PromptPocket-清理前备份-' + formatBackupTime() + '.json');
+  try {
+    await createStoredPromptBackup('cleanup');
+  } catch (error) {
+    console.error('Failed to store cleanup backup', error);
+  }
+}
+
+async function backupBeforeRestore() {
+  downloadJson(folders, 'PromptPocket-恢复前备份-' + formatBackupTime() + '.json');
+  try {
+    await createStoredPromptBackup('restore');
+  } catch (error) {
+    console.error('Failed to store restore backup', error);
+  }
 }
 
 function normalizePromptForStorage(prompt, usedPromptIds) {
@@ -1574,11 +1627,11 @@ function renderCleanupTool() {
   listEl.innerHTML = parts.join('');
 }
 
-function cleanupEmptyPrompts() {
+async function cleanupEmptyPrompts() {
   const report = getCleanupReport();
   if (report.empty.length === 0) return;
   if (!confirm('确定删除 ' + report.empty.length + ' 条空内容提示词吗？清理前会自动下载备份。')) return;
-  backupBeforeCleanup();
+  await backupBeforeCleanup();
   const deletePrompts = new Set(report.empty.map(({ prompt }) => prompt));
   folders.forEach(folder => {
     folder.prompts = (folder.prompts || []).filter(prompt => !deletePrompts.has(prompt));
@@ -1586,15 +1639,15 @@ function cleanupEmptyPrompts() {
   afterFoldersSaved(() => {
     render();
     renderCleanupTool();
-    alert('已清理 ' + deletePrompts.size + ' 条空内容提示词，并已下载清理前备份。');
+    alert('已清理 ' + deletePrompts.size + ' 条空内容提示词，并已保存清理前备份。');
   });
 }
 
-function cleanupDuplicatePrompts() {
+async function cleanupDuplicatePrompts() {
   const report = getCleanupReport();
   if (report.duplicateExtras === 0) return;
   if (!confirm('确定删除 ' + report.duplicateExtras + ' 条重复提示词吗？每组会保留第一条，清理前会自动下载备份。')) return;
-  backupBeforeCleanup();
+  await backupBeforeCleanup();
   const deletePrompts = new Set();
   report.duplicateGroups.forEach(group => {
     group.slice(1).forEach(({ prompt }) => deletePrompts.add(prompt));
@@ -1605,8 +1658,142 @@ function cleanupDuplicatePrompts() {
   afterFoldersSaved(() => {
     render();
     renderCleanupTool();
-    alert('已清理 ' + deletePrompts.size + ' 条重复提示词，并已下载清理前备份。');
+    alert('已清理 ' + deletePrompts.size + ' 条重复提示词，并已保存清理前备份。');
   });
+}
+
+function getBackupSourceLabel(source) {
+  if (source === 'import') return '导入前';
+  if (source === 'cleanup') return '清理前';
+  if (source === 'restore') return '恢复前';
+  return '手动备份';
+}
+
+function formatBackupDisplayTime(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '未知时间';
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+async function openBackupCenter() {
+  await loadPromptBackups();
+  renderBackupCenter();
+  document.getElementById('modalBackupCenter').classList.remove('hidden');
+}
+
+function closeBackupCenter() {
+  document.getElementById('modalBackupCenter').classList.add('hidden');
+}
+
+function renderBackupCenter() {
+  const summaryEl = document.getElementById('backupSummary');
+  const listEl = document.getElementById('backupList');
+  if (!summaryEl || !listEl) return;
+  const latest = promptBackups[0];
+  const totalPrompts = promptBackups.reduce((sum, backup) => sum + (backup.promptCount || 0), 0);
+  summaryEl.innerHTML = [
+    `<div class="cleanup-stat"><strong>${promptBackups.length}</strong>本地备份</div>`,
+    `<div class="cleanup-stat"><strong>${MAX_PROMPT_BACKUPS}</strong>最多保留</div>`,
+    `<div class="cleanup-stat"><strong>${latest ? formatBackupDisplayTime(latest.createdAt) : '-'}</strong>最近备份</div>`,
+    `<div class="cleanup-stat"><strong>${totalPrompts}</strong>备份提示词</div>`
+  ].join('');
+
+  if (promptBackups.length === 0) {
+    listEl.innerHTML = '<div class="pinned-empty">暂无本地备份。导入、清理或点击“立即备份”后会出现在这里。</div>';
+    return;
+  }
+
+  listEl.innerHTML = promptBackups.map(backup => `
+    <div class="backup-item" data-backup-id="${escapeHtml(backup.id)}">
+      <div class="backup-main">
+        <div class="backup-title">${escapeHtml(getBackupSourceLabel(backup.source))} · ${escapeHtml(formatBackupDisplayTime(backup.createdAt))}</div>
+        <div class="backup-meta">${backup.folderCount || 0} 个文件夹 · ${backup.promptCount || 0} 条提示词</div>
+      </div>
+      <div class="backup-actions">
+        <button type="button" class="btn small" data-backup-action="merge" data-backup-id="${escapeHtml(backup.id)}">合并</button>
+        <button type="button" class="btn small" data-backup-action="replace" data-backup-id="${escapeHtml(backup.id)}">覆盖</button>
+        <button type="button" class="btn small ghost" data-backup-action="export" data-backup-id="${escapeHtml(backup.id)}">导出</button>
+        <button type="button" class="btn small ghost" data-backup-action="delete" data-backup-id="${escapeHtml(backup.id)}">删除</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function createManualBackup() {
+  try {
+    await createStoredPromptBackup('manual');
+    alert('已保存当前数据到本地备份。');
+  } catch (error) {
+    alert('备份失败：' + (error.message || error));
+  }
+}
+
+function getPromptBackupById(backupId) {
+  return promptBackups.find(backup => backup.id === backupId);
+}
+
+async function restorePromptBackup(backupId, mode) {
+  const backup = getPromptBackupById(backupId);
+  if (!backup) return;
+  const replacing = mode === 'replace';
+  const actionLabel = replacing ? '覆盖恢复' : '合并恢复';
+  if (!confirm(`确定${actionLabel}这份备份吗？恢复前会自动下载并保存当前数据备份。`)) return;
+
+  await backupBeforeRestore();
+  const imported = normalizeImportedFolders(backup.folders);
+  if (replacing) {
+    folders = imported;
+  } else {
+    folders = mergeImportedFolders(folders, imported).folders;
+  }
+  const saved = await saveFolders();
+  if (!saved) return;
+  await loadFolders();
+  await loadPromptBackups();
+  renderBackupCenter();
+  alert(actionLabel + '完成。');
+}
+
+function exportPromptBackup(backupId) {
+  const backup = getPromptBackupById(backupId);
+  if (!backup) return;
+  const safeTime = String(backup.createdAt || '').replace(/[:.]/g, '-').slice(0, 19);
+  downloadJson({
+    storageSchemaVersion: PromptPocketStorageMigrations.CURRENT_STORAGE_SCHEMA_VERSION,
+    folders: backup.folders
+  }, 'PromptPocket-备份-' + safeTime + '.json');
+}
+
+async function deletePromptBackup(backupId) {
+  const backup = getPromptBackupById(backupId);
+  if (!backup) return;
+  if (!confirm('确定删除这份本地备份吗？')) return;
+  const nextBackups = promptPocketLogic.deletePromptBackup(promptBackups, backupId, { maxBackups: MAX_PROMPT_BACKUPS });
+  await savePromptBackups(nextBackups);
+  renderBackupCenter();
+}
+
+function handleBackupActionClick(event) {
+  const button = event.target.closest('[data-backup-action]');
+  if (!button) return;
+  const backupId = button.dataset.backupId;
+  const action = button.dataset.backupAction;
+  if (action === 'merge' || action === 'replace') {
+    restorePromptBackup(backupId, action).catch(error => alert('恢复失败：' + (error.message || error)));
+    return;
+  }
+  if (action === 'export') {
+    exportPromptBackup(backupId);
+    return;
+  }
+  if (action === 'delete') {
+    deletePromptBackup(backupId).catch(error => alert('删除备份失败：' + (error.message || error)));
+  }
 }
 
 function readJsonFile(file) {
@@ -1766,7 +1953,7 @@ function getSelectedImportMode() {
 
 async function importNormalizedFolders(imported, mode = 'merge') {
   try {
-    backupBeforeImport();
+    await backupBeforeImport();
     let message = '';
     if (mode === 'replace') {
       folders = imported;
@@ -1781,7 +1968,7 @@ async function importNormalizedFolders(imported, mode = 'merge') {
     if (!saved) return;
     closeImportModal();
     await loadFolders();
-    alert(message + '\n已自动下载导入前备份。');
+    alert(message + '\n已自动保存导入前备份。');
   } catch (err) {
     alert('导入失败：' + (err.message || err));
   } finally {
@@ -1970,6 +2157,9 @@ document.getElementById('exportBtn').addEventListener('click', exportToJson);
 document.getElementById('importBtn').addEventListener('click', () => openImportModal());
 document.getElementById('managePinned').addEventListener('click', openPinnedManager);
 document.getElementById('manageQuick').addEventListener('click', openQuickManager);
+document.getElementById('backupCenter').addEventListener('click', () => {
+  openBackupCenter().catch(error => alert('读取备份失败：' + (error.message || error)));
+});
 document.getElementById('cleanupData').addEventListener('click', openCleanupTool);
 document.getElementById('chooseImportFile').addEventListener('click', (e) => {
   e.preventDefault();
@@ -2019,6 +2209,14 @@ document.getElementById('closeCleanup').addEventListener('click', closeCleanupTo
 document.getElementById('rescanCleanup').addEventListener('click', renderCleanupTool);
 document.getElementById('cleanupEmpty').addEventListener('click', cleanupEmptyPrompts);
 document.getElementById('cleanupDuplicates').addEventListener('click', cleanupDuplicatePrompts);
+document.getElementById('closeBackupCenter').addEventListener('click', closeBackupCenter);
+document.getElementById('refreshBackups').addEventListener('click', () => {
+  loadPromptBackups().then(renderBackupCenter).catch(error => alert('刷新备份失败：' + (error.message || error)));
+});
+document.getElementById('manualBackup').addEventListener('click', () => {
+  createManualBackup().catch(error => alert('备份失败：' + (error.message || error)));
+});
+document.getElementById('backupList').addEventListener('click', handleBackupActionClick);
 document.getElementById('promptsList').addEventListener('click', handlePromptActionClick);
 document.getElementById('promptsList').addEventListener('keydown', (e) => {
   const moreButton = e.target.closest('button[data-action="more"]');
@@ -2167,12 +2365,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && (changes.quickPromptScopeMode || changes.quickPromptScopeFolderId)) {
     loadQuickScopeSettings().then(renderQuickScopeSettings);
   }
+  if (area === 'local' && changes.promptBackups) {
+    loadPromptBackups().then(renderBackupCenter).catch(() => {});
+  }
 });
 
 (async () => {
   renderVersion();
   await loadTheme();
   await loadQuickScopeSettings();
+  await loadPromptBackups();
   const autoPaste = await loadAutoPasteState();
   document.getElementById('autoPaste').checked = !!autoPaste;
   loadFolders();

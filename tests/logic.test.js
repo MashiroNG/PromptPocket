@@ -11,6 +11,67 @@ function titles(entries) {
 }
 
 {
+  const backups = [];
+  const folders = [{
+    id: 'folder_a',
+    name: 'Source',
+    prompts: [{ id: 'prompt_a', title: 'Prompt', text: 'Text' }]
+  }];
+  const result = logic.addPromptBackup(backups, folders, 'manual', {
+    idFactory: idFactory('backup'),
+    now: () => '2026-06-17T10:00:00.000Z',
+    maxBackups: 2
+  });
+
+  folders[0].name = 'Changed';
+  folders[0].prompts[0].text = 'Changed';
+
+  assert.equal(result.backup.id, 'backup_1');
+  assert.equal(result.backup.source, 'manual');
+  assert.equal(result.backup.folderCount, 1);
+  assert.equal(result.backup.promptCount, 1);
+  assert.equal(result.backup.folders[0].name, 'Source');
+  assert.equal(result.backup.folders[0].prompts[0].text, 'Text');
+  assert.equal(result.backups.length, 1);
+}
+
+{
+  let backups = [];
+  for (let i = 0; i < 4; i += 1) {
+    backups = logic.addPromptBackup(backups, [{
+      id: `folder_${i}`,
+      name: `Folder ${i}`,
+      prompts: []
+    }], 'auto', {
+      idFactory: idFactory(`b${i}`),
+      now: () => `2026-06-17T10:00:0${i}.000Z`,
+      maxBackups: 3
+    }).backups;
+  }
+
+  assert.equal(backups.length, 3);
+  assert.deepEqual(backups.map(backup => backup.folders[0].id), ['folder_3', 'folder_2', 'folder_1']);
+}
+
+{
+  const backups = logic.normalizePromptBackups([
+    null,
+    { id: 'bad', source: 'x', createdAt: 'bad', folders: 'nope' },
+    {
+      id: 'backup_a',
+      source: 'cleanup',
+      createdAt: '2026-06-17T10:00:00.000Z',
+      folders: [{ id: 'folder_a', name: 'A', prompts: [{ id: 'p', text: 'x' }] }]
+    }
+  ]);
+
+  assert.equal(backups.length, 1);
+  assert.equal(backups[0].folderCount, 1);
+  assert.equal(backups[0].promptCount, 1);
+  assert.deepEqual(logic.deletePromptBackup(backups, 'backup_a'), []);
+}
+
+{
   const imported = logic.normalizeImportedFolders([
     {
       id: 'bad id<script>',

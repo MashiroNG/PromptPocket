@@ -92,6 +92,69 @@
     return (folderList || []).reduce((sum, folder) => sum + ((folder.prompts || []).length), 0);
   }
 
+  function cloneFoldersForBackup(folderList) {
+    return (Array.isArray(folderList) ? folderList : []).map(folder => ({
+      ...(folder && typeof folder === 'object' ? folder : {}),
+      prompts: Array.isArray(folder && folder.prompts)
+        ? folder.prompts.map(prompt => ({ ...(prompt && typeof prompt === 'object' ? prompt : {}) }))
+        : []
+    }));
+  }
+
+  function createPromptBackup(folderList, source, options = {}) {
+    const folders = cloneFoldersForBackup(folderList);
+    const now = typeof options.now === 'function' ? options.now : () => new Date().toISOString();
+    const idFactory = typeof options.idFactory === 'function' ? options.idFactory : defaultIdFactory;
+    return {
+      id: idFactory(),
+      source: source || 'manual',
+      createdAt: now(),
+      folderCount: folders.length,
+      promptCount: countPromptsInFolders(folders),
+      folders
+    };
+  }
+
+  function normalizePromptBackups(backups, options = {}) {
+    const maxBackups = Number.isSafeInteger(options.maxBackups) && options.maxBackups > 0
+      ? options.maxBackups
+      : 20;
+    return (Array.isArray(backups) ? backups : [])
+      .filter(backup => (
+        backup &&
+        typeof backup === 'object' &&
+        isSafeId(backup.id) &&
+        typeof backup.createdAt === 'string' &&
+        Number.isFinite(Date.parse(backup.createdAt)) &&
+        Array.isArray(backup.folders)
+      ))
+      .map(backup => {
+        const folders = cloneFoldersForBackup(backup.folders);
+        return {
+          ...backup,
+          source: backup.source || 'manual',
+          folderCount: folders.length,
+          promptCount: countPromptsInFolders(folders),
+          folders
+        };
+      })
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(0, maxBackups);
+  }
+
+  function addPromptBackup(backups, folderList, source, options = {}) {
+    const maxBackups = Number.isSafeInteger(options.maxBackups) && options.maxBackups > 0
+      ? options.maxBackups
+      : 20;
+    const backup = createPromptBackup(folderList, source, options);
+    const next = normalizePromptBackups([backup, ...(Array.isArray(backups) ? backups : [])], { maxBackups });
+    return { backup, backups: next };
+  }
+
+  function deletePromptBackup(backups, backupId, options = {}) {
+    return normalizePromptBackups(backups, options).filter(backup => backup.id !== backupId);
+  }
+
   function normalizeCleanupText(text) {
     return String(text || '').trim().replace(/\s+/g, ' ').toLowerCase();
   }
@@ -369,6 +432,10 @@
     sanitizeFolders,
     normalizeImportedFolders,
     countPromptsInFolders,
+    createPromptBackup,
+    normalizePromptBackups,
+    addPromptBackup,
+    deletePromptBackup,
     normalizeCleanupText,
     getCleanupReport,
     promptMatchesSearch,
