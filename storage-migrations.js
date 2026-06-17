@@ -127,6 +127,111 @@
     };
   }
 
+  function getMigrationSteps(migrations, sanitizeFolders, isSafeId) {
+    return migrations === undefined
+      ? { 0: createVersionZeroMigration(sanitizeFolders, isSafeId) }
+      : migrations;
+  }
+
+  function getMigrationStart(snapshot, currentVersion) {
+    const stored = isObjectRecord(snapshot) ? snapshot : {};
+    const storedVersion = normalizeSchemaVersion(stored[STORAGE_SCHEMA_VERSION_KEY]);
+    const saved = {
+      folders: [],
+      foldersRevision: 0,
+      ...stored,
+      [STORAGE_SCHEMA_VERSION_KEY]: storedVersion
+    };
+
+    if (storedVersion > currentVersion) {
+      throw new Error(
+        `Storage schema version ${storedVersion} is newer than supported version ${currentVersion}`
+      );
+    }
+
+    return { storedVersion, saved };
+  }
+
+  function migrateStorageSnapshot({
+    snapshot,
+    sanitizeFolders,
+    isSafeId,
+    currentVersion = CURRENT_STORAGE_SCHEMA_VERSION,
+    migrations
+  }) {
+    const { storedVersion, saved } = getMigrationStart(snapshot, currentVersion);
+    if (storedVersion === currentVersion) {
+      return {
+        snapshot: saved,
+        changes: {},
+        migrated: false,
+        storageSchemaVersion: currentVersion
+      };
+    }
+
+    const migrationSteps = getMigrationSteps(migrations, sanitizeFolders, isSafeId);
+    let nextSnapshot = saved;
+    let changes = {};
+    for (let version = storedVersion; version < currentVersion; version += 1) {
+      const migration = migrationSteps[version];
+      if (typeof migration !== 'function') {
+        throw new Error(`Missing storage migration from version ${version} to ${version + 1}`);
+      }
+      const stepChanges = migration(nextSnapshot) || {};
+      changes = {
+        ...changes,
+        ...stepChanges,
+        [STORAGE_SCHEMA_VERSION_KEY]: version + 1
+      };
+      nextSnapshot = { ...nextSnapshot, ...changes };
+    }
+
+    return {
+      snapshot: nextSnapshot,
+      changes,
+      migrated: Object.keys(changes).length > 0,
+      storageSchemaVersion: currentVersion
+    };
+  }
+
+  function normalizeImportedData({
+    data,
+    sanitizeFolders,
+    isSafeId,
+    currentVersion = CURRENT_STORAGE_SCHEMA_VERSION,
+    migrations
+  }) {
+    if (!Array.isArray(data) && !isObjectRecord(data)) {
+      throw new Error('Invalid import format: expected a folders array or PromptPocket backup object');
+    }
+
+    const sourceSnapshot = Array.isArray(data) ? { folders: data } : data;
+    const migrated = migrateStorageSnapshot({
+      snapshot: sourceSnapshot,
+      sanitizeFolders,
+      isSafeId,
+      currentVersion,
+      migrations
+    });
+    const folders = Array.isArray(migrated.snapshot.folders)
+      ? migrated.snapshot.folders
+      : [];
+    const normalized = sanitizeFolders(folders);
+    validateSanitizedFolders(folders, normalized.folders, isSafeId);
+    const snapshot = {
+      ...migrated.snapshot,
+      folders: normalized.folders,
+      [STORAGE_SCHEMA_VERSION_KEY]: currentVersion
+    };
+
+    return {
+      folders: normalized.folders,
+      snapshot,
+      migrated: migrated.migrated || normalized.changed,
+      storageSchemaVersion: currentVersion
+    };
+  }
+
   function createStorageMigrator({
     storage,
     sanitizeFolders,
@@ -136,29 +241,13 @@
   }) {
     let inFlight = null;
     let migrated = false;
-    const migrationSteps = migrations === undefined
-      ? { 0: createVersionZeroMigration(sanitizeFolders, isSafeId) }
-      : migrations;
 
     async function migrate() {
       const stored = await storage.getAll();
-      const storedVersion = normalizeSchemaVersion(
-        stored && stored[STORAGE_SCHEMA_VERSION_KEY]
-      );
-      const saved = {
-        folders: [],
-        foldersRevision: 0,
-        ...(stored || {}),
-        [STORAGE_SCHEMA_VERSION_KEY]: storedVersion
-      };
-
-      if (storedVersion > currentVersion) {
-        throw new Error(
-          `Storage schema version ${storedVersion} is newer than supported version ${currentVersion}`
-        );
-      }
+      const { storedVersion, saved } = getMigrationStart(stored, currentVersion);
       if (storedVersion === currentVersion) return;
 
+      const migrationSteps = getMigrationSteps(migrations, sanitizeFolders, isSafeId);
       let snapshot = saved;
       let changes = {};
       for (let version = storedVersion; version < currentVersion; version += 1) {
@@ -200,6 +289,8 @@
   return {
     CURRENT_STORAGE_SCHEMA_VERSION,
     STORAGE_SCHEMA_VERSION_KEY,
+    migrateStorageSnapshot,
+    normalizeImportedData,
     createStorageMigrator
   };
 });

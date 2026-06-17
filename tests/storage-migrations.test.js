@@ -5,7 +5,8 @@ const logic = require('../sidepanel-logic.js');
 const {
   CURRENT_STORAGE_SCHEMA_VERSION,
   STORAGE_SCHEMA_VERSION_KEY,
-  createStorageMigrator
+  createStorageMigrator,
+  normalizeImportedData
 } = require('../storage-migrations.js');
 
 function createMemoryStorage(initialState, options = {}) {
@@ -48,6 +49,63 @@ function createMigrator(storage, sanitizeFolders = logic.sanitizeFolders) {
 async function run() {
   assert.equal(CURRENT_STORAGE_SCHEMA_VERSION, 1);
   assert.equal(STORAGE_SCHEMA_VERSION_KEY, 'storageSchemaVersion');
+
+  {
+    const imported = normalizeImportedData({
+      data: [{
+        id: 'unsafe folder',
+        name: 'Legacy',
+        prompts: [{
+          id: 'duplicate',
+          title: 'Keep',
+          text: 'one'
+        }, {
+          id: 'duplicate',
+          legacyOnly: true
+        }]
+      }],
+      sanitizeFolders: folders => logic.sanitizeFolders(folders, idFactory()),
+      isSafeId: logic.isSafeId
+    });
+
+    assert.equal(imported.storageSchemaVersion, CURRENT_STORAGE_SCHEMA_VERSION);
+    assert.equal(imported.migrated, true);
+    assert.equal(imported.folders[0].id, 'generated_1');
+    assert.equal(imported.folders[0].prompts[0].id, 'duplicate');
+    assert.equal(imported.folders[0].prompts[1].id, 'generated_2');
+    assert.equal(imported.folders[0].prompts[1].text, '');
+    assert.equal(imported.folders[0].prompts[1].legacyOnly, true);
+  }
+
+  {
+    const imported = normalizeImportedData({
+      data: {
+        storageSchemaVersion: 0,
+        foldersRevision: 'bad',
+        folders: [{ id: 'bad id', name: 'Backup', prompts: [] }],
+        unrelatedSetting: true
+      },
+      sanitizeFolders: folders => logic.sanitizeFolders(folders, idFactory()),
+      isSafeId: logic.isSafeId
+    });
+
+    assert.equal(imported.storageSchemaVersion, CURRENT_STORAGE_SCHEMA_VERSION);
+    assert.equal(imported.migrated, true);
+    assert.equal(imported.snapshot.unrelatedSetting, true);
+    assert.equal(imported.snapshot.foldersRevision, 1);
+    assert.equal(imported.folders[0].id, 'generated_1');
+  }
+
+  {
+    assert.throws(
+      () => normalizeImportedData({
+        data: { storageSchemaVersion: 2, folders: [] },
+        sanitizeFolders: logic.sanitizeFolders,
+        isSafeId: logic.isSafeId
+      }),
+      /newer than supported version 1/
+    );
+  }
 
   {
     const originalFolders = [{
@@ -387,6 +445,28 @@ async function run() {
   }
 
   {
+    const storage = createMemoryStorage({
+      folders: [],
+      foldersRevision: 0
+    });
+    const migrator = createStorageMigrator({
+      storage,
+      currentVersion: 1,
+      migrations: {
+        0: async () => ({ asyncStep: true })
+      }
+    });
+
+    await migrator.ensureMigrated();
+
+    assert.equal(storage.getState().asyncStep, true);
+    assert.deepEqual(storage.getLastChanges(), {
+      asyncStep: true,
+      storageSchemaVersion: 1
+    });
+  }
+
+  {
     const initialState = {
       folders: [],
       foldersRevision: 0,
@@ -617,6 +697,22 @@ async function run() {
       background.slice(rawStorageEnd + 3),
       /chrome\.storage\.local\.(?:get|set|remove)/
     );
+
+    const sidepanelHtml = fs.readFileSync(
+      path.join(__dirname, '..', 'sidepanel.html'),
+      'utf8'
+    );
+    const sidepanelLogicScript = sidepanelHtml.indexOf('sidepanel-logic.js');
+    const sidepanelMigrationScript = sidepanelHtml.indexOf('storage-migrations.js');
+    const sidepanelScript = sidepanelHtml.indexOf('sidepanel.js');
+    assert.ok(sidepanelMigrationScript > sidepanelLogicScript);
+    assert.ok(sidepanelScript > sidepanelMigrationScript);
+
+    const sidepanel = fs.readFileSync(
+      path.join(__dirname, '..', 'sidepanel.js'),
+      'utf8'
+    );
+    assert.match(sidepanel, /PromptPocketStorageMigrations\.normalizeImportedData/);
   }
 
   console.log('storage migration tests passed');

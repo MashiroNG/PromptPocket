@@ -1494,7 +1494,11 @@ function sanitizeFolders(folderList) {
 }
 
 function normalizeImportedFolders(data) {
-  return promptPocketLogic.normalizeImportedFolders(data, uuid);
+  return PromptPocketStorageMigrations.normalizeImportedData({
+    data,
+    sanitizeFolders: folders => promptPocketLogic.sanitizeFolders(folders, uuid),
+    isSafeId: promptPocketLogic.isSafeId
+  }).folders;
 }
 
 function countPromptsInFolders(folderList) {
