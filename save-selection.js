@@ -1,6 +1,18 @@
 let currentDraft = null;
 let folders = [];
 const DEFAULT_FOLDER_NAME = '收件箱';
+const isEmbeddedSavePage = new URLSearchParams(location.search).get('embedded') === '1';
+
+function closeSavePage() {
+  if (isEmbeddedSavePage && window.parent !== window) {
+    window.parent.postMessage({
+      source: 'promptpocket-save-selection',
+      action: 'close'
+    }, '*');
+    return;
+  }
+  window.close();
+}
 
 function sendFolderMessage(message, options) {
   return PromptPocketFolderMessageContract.sendRuntimeMessage(
@@ -11,7 +23,14 @@ function sendFolderMessage(message, options) {
 }
 
 function applyTheme(theme) {
-  document.body.classList.toggle('theme-light', theme === 'light');
+  document.documentElement.classList.toggle('theme-light', theme === 'light');
+}
+
+function updateCharacterCounts() {
+  const title = document.getElementById('promptTitle').value;
+  const text = document.getElementById('promptText').value;
+  document.getElementById('titleCount').textContent = `${Array.from(title).length} 字`;
+  document.getElementById('textCount').textContent = `${Array.from(text).length} 字`;
 }
 
 async function loadTheme() {
@@ -45,6 +64,7 @@ async function loadDraft() {
   document.getElementById('promptTitle').value = currentDraft.title || '';
   document.getElementById('promptText').value = currentDraft.text || '';
   document.getElementById('promptPinned').checked = !!currentDraft.pinned;
+  updateCharacterCounts();
   document.getElementById('promptTitle').focus();
 }
 
@@ -122,12 +142,15 @@ async function saveDraft() {
     { action: 'savePromptDraft', draft },
     { defaultError: '保存失败。' }
   )
-    .then(() => window.close())
+    .then(closeSavePage)
     .catch((error) => showError(error.message || '保存失败。'));
 }
 
 document.getElementById('saveBtn').addEventListener('click', saveDraft);
-document.getElementById('cancelBtn').addEventListener('click', () => window.close());
+document.getElementById('cancelBtn').addEventListener('click', closeSavePage);
+document.getElementById('closeBtn').addEventListener('click', closeSavePage);
+document.getElementById('promptTitle').addEventListener('input', updateCharacterCounts);
+document.getElementById('promptText').addEventListener('input', updateCharacterCounts);
 document.getElementById('newFolderBtn').addEventListener('click', openNewFolderRow);
 document.getElementById('confirmFolderBtn').addEventListener('click', () => {
   addFolder().catch((error) => showError(error.message || '新建文件夹失败。'));
@@ -141,7 +164,7 @@ document.getElementById('newFolderName').addEventListener('keydown', (event) => 
 });
 document.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') saveDraft();
-  if (event.key === 'Escape') window.close();
+  if (event.key === 'Escape') closeSavePage();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {

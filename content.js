@@ -7,6 +7,8 @@ const FLOAT_COMMAND_PANEL_ID = 'simplest-prompt-command-panel';
 const QUICK_LAUNCHER_ID = 'simplest-prompt-quick-launcher';
 const QUICK_PANEL_ID = 'simplest-prompt-quick-panel';
 const QUICK_STYLE_ID = 'simplest-prompt-quick-style';
+const SAVE_MODAL_HOST_ID = 'simplest-prompt-save-modal';
+const SAVE_MODAL_MESSAGE_SOURCE = 'promptpocket-save-selection';
 let floatHideTimer = null;
 let extensionFeaturesActive = true;
 let quickActiveEditor = null;
@@ -33,6 +35,7 @@ function deactivateExtensionFeatures() {
   extensionFeaturesActive = false;
   removeFloatButton();
   removeQuickPromptUi();
+  closeSaveSelectionModal();
 }
 
 const injectionMessageHandler = PromptPocketInjectionRouting.createInjectionMessageHandler(
@@ -41,16 +44,25 @@ const injectionMessageHandler = PromptPocketInjectionRouting.createInjectionMess
 
 if (hasRuntimeContext()) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (!msg || msg.action !== 'injectPrompt') return;
-    try {
-      injectionMessageHandler(msg).then(
-        sendResponse,
-        () => sendResponse({ success: false })
-      );
-    } catch (error) {
-      sendResponse({ success: false });
+    if (!msg) return;
+    if (msg.action === 'injectPrompt') {
+      try {
+        injectionMessageHandler(msg).then(
+          sendResponse,
+          () => sendResponse({ success: false })
+        );
+      } catch (error) {
+        sendResponse({ success: false });
+      }
+      return true;
     }
-    return true;
+    if (msg.action === 'showSaveSelection') {
+      openSaveSelectionModal(msg.text || '').then(
+        () => sendResponse({ success: true }),
+        error => sendResponse({ success: false, error: error.message || '打开保存弹窗失败' })
+      );
+      return true;
+    }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && (changes.folders || changes.quickPromptScopeMode || changes.quickPromptScopeFolderId)) {
@@ -97,15 +109,6 @@ function getSelectionRect() {
   return isUsableRect(bounds) ? bounds : null;
 }
 
-function getWindowGeometry() {
-  return {
-    left: window.screenX,
-    top: window.screenY,
-    width: window.outerWidth,
-    height: window.outerHeight
-  };
-}
-
 function removeFloatButton() {
   [FLOAT_WRAP_ID, FLOAT_BUTTON_ID, FLOAT_COMMAND_BUTTON_ID, FLOAT_COMMAND_PANEL_ID].forEach(id => {
     const existing = document.getElementById(id);
@@ -145,6 +148,143 @@ function showContentNotice(message) {
   document.documentElement.appendChild(el);
   setTimeout(() => el.remove(), 3200);
 }
+
+function sendContentRuntimeMessage(message, defaultError) {
+  return new Promise((resolve, reject) => {
+    if (!hasRuntimeContext()) {
+      reject(new Error('插件上下文已失效，请刷新页面后重试'));
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(message, response => {
+        const runtimeError = chrome.runtime.lastError;
+        if (runtimeError) {
+          reject(new Error(runtimeError.message || defaultError));
+          return;
+        }
+        if (!response || !response.success) {
+          reject(new Error(response && response.error || defaultError));
+          return;
+        }
+        resolve(response);
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function closeSaveSelectionModal() {
+  const host = document.getElementById(SAVE_MODAL_HOST_ID);
+  if (host) host.remove();
+}
+
+function createSaveSelectionModal(theme) {
+  closeSaveSelectionModal();
+
+  const safeTheme = theme === 'light' ? 'light' : 'dark';
+  const host = document.createElement('div');
+  host.id = SAVE_MODAL_HOST_ID;
+  const shadow = host.attachShadow({ mode: 'open' });
+  const style = document.createElement('style');
+  style.textContent = `
+    :host {
+      all: initial;
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      display: block;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    }
+    .backdrop {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      background: rgba(2, 2, 2, 0.44);
+      backdrop-filter: blur(3px);
+      animation: backdrop-in 160ms ease-out both;
+    }
+    .dialog {
+      width: min(640px, calc(100vw - 28px));
+      height: min(618px, calc(100vh - 28px));
+      overflow: hidden;
+      border: 1px solid rgba(248, 248, 248, 0.16);
+      border-radius: 18px;
+      background: ${safeTheme === 'light' ? '#f3f6fa' : '#111315'};
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.32), 0 8px 28px rgba(0, 0, 0, 0.2);
+      animation: dialog-in 190ms cubic-bezier(.2,.85,.25,1) both;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      display: block;
+      border: 0;
+      background: transparent;
+    }
+    @keyframes backdrop-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes dialog-in {
+      from { transform: translateY(10px) scale(0.985); }
+      to { transform: translateY(0) scale(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .backdrop,
+      .dialog { animation-duration: 0.01ms; }
+    }
+  `;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'backdrop';
+  const dialog = document.createElement('div');
+  dialog.className = 'dialog';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-label', '保存提示词');
+  const frame = document.createElement('iframe');
+  frame.title = '保存提示词';
+  const frameUrl = new URL(chrome.runtime.getURL('save-selection.html'));
+  frameUrl.searchParams.set('theme', safeTheme);
+  frameUrl.searchParams.set('embedded', '1');
+  frame.src = frameUrl.href;
+
+  dialog.appendChild(frame);
+  backdrop.appendChild(dialog);
+  shadow.append(style, backdrop);
+  backdrop.addEventListener('click', event => {
+    if (event.target === backdrop) closeSaveSelectionModal();
+  });
+  document.documentElement.appendChild(host);
+  removeFloatButton();
+}
+
+async function openSaveSelectionModal(selectionText) {
+  const text = String(selectionText || '').trim();
+  if (!text) throw new Error('没有可保存的选中文本');
+  const prepared = await sendContentRuntimeMessage(
+    { action: 'prepareSaveSelection', text },
+    '准备保存提示词失败'
+  );
+  createSaveSelectionModal(prepared.theme);
+}
+
+window.addEventListener('message', event => {
+  const data = event.data;
+  if (!data || data.source !== SAVE_MODAL_MESSAGE_SOURCE || data.action !== 'close') return;
+  const host = document.getElementById(SAVE_MODAL_HOST_ID);
+  const frame = host && host.shadowRoot && host.shadowRoot.querySelector('iframe');
+  if (!frame || event.source !== frame.contentWindow) return;
+  closeSaveSelectionModal();
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && document.getElementById(SAVE_MODAL_HOST_ID)) {
+    closeSaveSelectionModal();
+  }
+}, true);
 
 function applySelectionTemplateText(template, selectedText) {
   const base = (template || '').toString();
@@ -357,21 +497,13 @@ function ensureFloatButton() {
       deactivateExtensionFeatures();
       return;
     }
-    try {
-      chrome.runtime.sendMessage({ action: 'openSaveSelection', text, geometry: getWindowGeometry() }, response => {
-        if (!hasRuntimeContext()) {
-          deactivateExtensionFeatures();
-          return;
-        }
-        if (chrome.runtime.lastError || !response || !response.success) {
-          showContentNotice(chrome.runtime.lastError && chrome.runtime.lastError.message || response && response.error || '保存提示词失败');
-          return;
-        }
-        removeFloatButton();
-      });
-    } catch (e) {
-      deactivateExtensionFeatures();
-    }
+    openSaveSelectionModal(text).catch(error => {
+      if (!hasRuntimeContext()) {
+        deactivateExtensionFeatures();
+        return;
+      }
+      showContentNotice(error.message || '保存提示词失败');
+    });
   });
 
   commandButton.addEventListener('click', event => {
@@ -579,6 +711,20 @@ function findLikelyComposerContainer(el) {
   return null;
 }
 
+function isPromptPocketUiTarget(target) {
+  const element = target && target.nodeType === Node.ELEMENT_NODE
+    ? target
+    : target && target.parentElement;
+  if (!element || !element.closest) return false;
+  return !!element.closest([
+    `#${FLOAT_WRAP_ID}`,
+    `#${FLOAT_COMMAND_PANEL_ID}`,
+    `#${QUICK_LAUNCHER_ID}`,
+    `#${QUICK_PANEL_ID}`,
+    `#${SAVE_MODAL_HOST_ID}`
+  ].join(','));
+}
+
 const PLATFORM_ADAPTERS = [
   {
     name: 'chatgpt',
@@ -587,6 +733,7 @@ const PLATFORM_ADAPTERS = [
     findEditableFromTarget(target) {
       const start = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
       if (!start || !start.closest) return null;
+      if (isPromptPocketUiTarget(start)) return null;
       const editable = start.closest('#prompt-textarea, [data-testid="composer-input"], textarea, input, [contenteditable="true"]');
       return isEditable(editable) ? editable : null;
     },
@@ -664,6 +811,7 @@ const PLATFORM_ADAPTERS = [
     findEditableFromTarget(target) {
       const start = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
       if (!start || !start.closest) return null;
+      if (isPromptPocketUiTarget(start)) return null;
       const richTextarea = start.closest('rich-textarea');
       if (richTextarea) {
         const editor = richTextarea.querySelector('.ql-editor[contenteditable="true"], .ql-editor, [contenteditable="true"]');
@@ -1120,7 +1268,8 @@ function ensureQuickPanel() {
     'position:fixed',
     'z-index:2147483646',
     'width:324px',
-    'max-height:390px',
+    'height:min(390px,calc(100vh - 20px))',
+    'max-height:calc(100vh - 20px)',
     'display:grid',
     'grid-template-rows:auto 1fr',
     'gap:10px',
@@ -1154,7 +1303,10 @@ function ensureQuickPanel() {
     if (!target || !target.closest('[data-sp-search]')) event.preventDefault();
   });
   panel.querySelector('[data-sp-close]').addEventListener('click', () => animateQuickPanelOut(panel));
-  panel.querySelector('[data-sp-search]').addEventListener('input', event => renderQuickPromptList(event.target.value || ''));
+  panel.querySelector('[data-sp-search]').addEventListener('input', event => {
+    renderQuickPromptList(event.target.value || '');
+    positionQuickPanel();
+  });
   attachQuickListScrollbarBehavior(panel.querySelector('[data-sp-list]'));
 
   document.documentElement.appendChild(panel);

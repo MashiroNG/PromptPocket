@@ -258,6 +258,22 @@
     return Number.isFinite(time) ? time : 0;
   }
 
+  function compareQuickPromptOrder(aPrompt, bPrompt, aFallbackOrder, bFallbackOrder) {
+    const aPinned = !!(aPrompt && aPrompt.pinned);
+    const bPinned = !!(bPrompt && bPrompt.pinned);
+    if (aPinned !== bPinned) return Number(bPinned) - Number(aPinned);
+    if (aPinned) {
+      const pinnedDiff = getPinnedTime(bPrompt) - getPinnedTime(aPrompt);
+      if (pinnedDiff !== 0) return pinnedDiff;
+    }
+    const quickDiff = getQuickTime(bPrompt) - getQuickTime(aPrompt);
+    if (quickDiff !== 0) return quickDiff;
+    const aHasQuick = !!(aPrompt && aPrompt.quickAt);
+    const bHasQuick = !!(bPrompt && bPrompt.quickAt);
+    if (aHasQuick !== bHasQuick) return Number(bHasQuick) - Number(aHasQuick);
+    return aFallbackOrder - bFallbackOrder;
+  }
+
   function getQuickPromptEntries(folderList) {
     const entries = [];
     (folderList || []).forEach((folder, folderIndex) => {
@@ -270,19 +286,12 @@
         });
       });
     });
-    return entries.sort((a, b) => {
-      const quickDiff = getQuickTime(b.prompt) - getQuickTime(a.prompt);
-      if (quickDiff !== 0) return quickDiff;
-      const aHasQuick = !!a.prompt.quickAt;
-      const bHasQuick = !!b.prompt.quickAt;
-      if (aHasQuick !== bHasQuick) return Number(bHasQuick) - Number(aHasQuick);
-      if (a.prompt.pinned !== b.prompt.pinned) return Number(b.prompt.pinned) - Number(a.prompt.pinned);
-      if (a.prompt.pinned && b.prompt.pinned) {
-        const pinnedDiff = getPinnedTime(b.prompt) - getPinnedTime(a.prompt);
-        if (pinnedDiff !== 0) return pinnedDiff;
-      }
-      return a.fallbackOrder - b.fallbackOrder;
-    });
+    return entries.sort((a, b) => compareQuickPromptOrder(
+      a.prompt,
+      b.prompt,
+      a.fallbackOrder,
+      b.fallbackOrder
+    ));
   }
 
   function getQuickPromptItems(folderList, scopeMode = 'all', scopeFolderId = '') {
@@ -292,7 +301,9 @@
     for (let folderIndex = 0; folderIndex < safeFolders.length; folderIndex += 1) {
       const folder = safeFolders[folderIndex];
       if (safeScopeMode === 'folder' && folder.id !== scopeFolderId) continue;
-      const prompts = folder.prompts || [];
+      const prompts = safeScopeMode === 'folder'
+        ? getPromptDisplayItems(folder.prompts || [])
+        : (folder.prompts || []);
       for (let promptIndex = 0; promptIndex < prompts.length; promptIndex += 1) {
         const prompt = prompts[promptIndex];
         if (!prompt || !prompt.text) continue;
@@ -313,17 +324,7 @@
     if (safeScopeMode === 'folder') {
       return items.sort((a, b) => a.order - b.order);
     }
-    return items.sort((a, b) => {
-      const quickDiff = Date.parse(b.quickAt || '') - Date.parse(a.quickAt || '');
-      if (Number.isFinite(quickDiff) && quickDiff !== 0) return quickDiff;
-      if (!!a.quickAt !== !!b.quickAt) return Number(!!b.quickAt) - Number(!!a.quickAt);
-      if (a.pinned !== b.pinned) return Number(b.pinned) - Number(a.pinned);
-      if (a.pinned && b.pinned) {
-        const diff = Date.parse(b.pinnedAt || '') - Date.parse(a.pinnedAt || '');
-        if (Number.isFinite(diff) && diff !== 0) return diff;
-      }
-      return a.order - b.order;
-    });
+    return items.sort((a, b) => compareQuickPromptOrder(a, b, a.order, b.order));
   }
 
   function mergeImportedFolders(currentFolders, importedFolders, idFactory = defaultIdFactory) {

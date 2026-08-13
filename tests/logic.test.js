@@ -235,7 +235,7 @@ function titles(entries) {
 
   assert.deepEqual(
     logic.getQuickPromptItems(folders, 'all', '').map(item => item.title),
-    ['新快捷', '旧快捷', '置顶', '普通']
+    ['置顶', '新快捷', '旧快捷', '普通']
   );
   assert.deepEqual(
     logic.getQuickPromptItems(folders, 'pinned', '').map(item => item.title),
@@ -244,6 +244,20 @@ function titles(entries) {
   assert.deepEqual(
     logic.getQuickPromptItems(folders, 'folder', 'f2').map(item => item.title),
     ['置顶', '普通']
+  );
+
+  const folderWithNewNormalFirst = [{
+    id: 'f3',
+    name: 'C',
+    prompts: [
+      { id: 'c1', title: '刚添加的普通提示词', text: '5', quickAt: '2026-04-01T00:00:00.000Z' },
+      { id: 'c2', title: '原有置顶提示词', text: '6', pinned: true, pinnedAt: '2026-03-01T00:00:00.000Z' },
+      { id: 'c3', title: '原有普通提示词', text: '7' }
+    ]
+  }];
+  assert.deepEqual(
+    logic.getQuickPromptItems(folderWithNewNormalFirst, 'folder', 'f3').map(item => item.title),
+    ['原有置顶提示词', '刚添加的普通提示词', '原有普通提示词']
   );
 }
 

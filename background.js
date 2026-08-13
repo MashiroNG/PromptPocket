@@ -18,7 +18,7 @@ const MAX_FOLDERS = 25;
 const MAX_PROMPTS_PER_FOLDER = 30;
 const MAX_PINNED_PROMPTS = 12;
 const SAVE_POPUP_WIDTH = 640;
-const SAVE_POPUP_HEIGHT = 760;
+const SAVE_POPUP_HEIGHT = 650;
 
 const rawStorage = {
   getAll: () => chrome.storage.local.get(null),
@@ -172,11 +172,11 @@ function applyPopupCenterFromGeometry(popupOptions, geometry) {
   return true;
 }
 
-async function openSaveSelectionWindow(selectionText, tab, geometry) {
+async function prepareSaveSelectionDraft(selectionText, tab) {
   const text = normalizePromptText(selectionText);
   if (!text) {
     showToast('没有可保存的选中文本');
-    return;
+    return null;
   }
 
   try {
@@ -194,8 +194,20 @@ async function openSaveSelectionWindow(selectionText, tab, geometry) {
     throw new Error(formatStorageError(error));
   }
 
+  const { sidepanelTheme } = await migratedStorage.get({ sidepanelTheme: 'dark' });
+  return {
+    theme: sidepanelTheme === 'light' ? 'light' : 'dark'
+  };
+}
+
+async function openSaveSelectionWindow(selectionText, tab, geometry) {
+  const prepared = await prepareSaveSelectionDraft(selectionText, tab);
+  if (!prepared) return false;
+
+  const popupUrl = new URL(chrome.runtime.getURL('save-selection.html'));
+  popupUrl.searchParams.set('theme', prepared.theme);
   const popupOptions = {
-    url: chrome.runtime.getURL('save-selection.html'),
+    url: popupUrl.href,
     type: 'popup',
     width: SAVE_POPUP_WIDTH,
     height: SAVE_POPUP_HEIGHT,
@@ -214,6 +226,22 @@ async function openSaveSelectionWindow(selectionText, tab, geometry) {
   }
 
   await chrome.windows.create(popupOptions);
+  return true;
+}
+
+function openSaveSelectionInTab(selectionText, tab) {
+  if (!tab || !Number.isInteger(tab.id)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(
+      tab.id,
+      { action: 'showSaveSelection', text: selectionText || '' },
+      { frameId: 0 },
+      (response) => {
+        const error = chrome.runtime.lastError;
+        resolve(!error && !!(response && response.success));
+      }
+    );
+  });
 }
 
 function getFolderForDraft(folders, folderId) {
@@ -673,7 +701,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     return;
   }
   if (id === SAVE_SELECTION_ID) {
-    await openSaveSelectionWindow(info.selectionText || '', tab);
+    const text = info.selectionText || '';
+    const openedInPage = await openSaveSelectionInTab(text, tab);
+    if (!openedInPage) await openSaveSelectionWindow(text, tab);
     return;
   }
   if (id === 'ai_open_panel' || id === 'ai_open_panel_empty_prompts' || id === 'ai_open_panel_empty_targets') {
@@ -729,6 +759,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'openSaveSelection') {
     const tab = sender && sender.tab || null;
     openSaveSelectionWindow(msg.text || '', tab, msg.geometry).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: e.message }));
+    return true;
+  }
+  if (msg.action === 'prepareSaveSelection') {
+    const tab = sender && sender.tab || null;
+    prepareSaveSelectionDraft(msg.text || '', tab)
+      .then(result => sendResponse(result
+        ? { success: true, theme: result.theme }
+        : { success: false, error: '没有可保存的选中文本' }))
+      .catch(e => sendResponse({ success: false, error: e.message }));
     return true;
   }
   if (msg.action === 'usePrompt') {

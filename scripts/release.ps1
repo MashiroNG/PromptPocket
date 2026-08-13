@@ -105,6 +105,7 @@ $jsFiles = @(
   'content.js',
   'sidepanel-runtime.js',
   'sidepanel.js',
+  'save-selection-theme.js',
   'save-selection.js'
 )
 foreach ($file in $jsFiles) {
