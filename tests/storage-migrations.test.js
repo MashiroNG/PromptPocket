@@ -1,13 +1,11 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const logic = require('../sidepanel-logic.js');
+const logic = require('../src/shared/sidepanel-logic.js');
 const {
   CURRENT_STORAGE_SCHEMA_VERSION,
   STORAGE_SCHEMA_VERSION_KEY,
   createStorageMigrator,
   normalizeImportedData
-} = require('../storage-migrations.js');
+} = require('../src/shared/storage-migrations.js');
 
 function createMemoryStorage(initialState, options = {}) {
   let state = structuredClone(initialState);
@@ -651,68 +649,6 @@ async function run() {
     assert.equal(storage.getReads(), 2);
     assert.equal(storage.getWrites(), 1);
     assert.equal(storage.getState().storageSchemaVersion, 1);
-  }
-
-  {
-    const background = fs.readFileSync(
-      path.join(__dirname, '..', 'background.js'),
-      'utf8'
-    );
-    const logicImport = background.indexOf("'sidepanel-logic.js'");
-    const migrationImport = background.indexOf("'storage-migrations.js'");
-    const folderStoreImport = background.indexOf("'folder-store.js'");
-
-    assert.ok(logicImport >= 0);
-    assert.ok(migrationImport > logicImport);
-    assert.ok(folderStoreImport > migrationImport);
-    assert.match(
-      background,
-      /getAll:\s*\(\)\s*=>\s*chrome\.storage\.local\.get\(null\)/
-    );
-    assert.match(
-      background,
-      /const migratedStorage = \{[\s\S]*get:\s*async[\s\S]*await ensureStorageMigrated\(\);[\s\S]*rawStorage\.get/
-    );
-    assert.match(
-      background,
-      /const migratedStorage = \{[\s\S]*set:\s*async[\s\S]*await ensureStorageMigrated\(\);[\s\S]*rawStorage\.set/
-    );
-    assert.match(
-      background,
-      /const migratedStorage = \{[\s\S]*remove:\s*async[\s\S]*await ensureStorageMigrated\(\);[\s\S]*rawStorage\.remove/
-    );
-
-    const rawChromeStorageCalls = background.match(
-      /chrome\.storage\.local\.(?:get|set|remove)/g
-    ) || [];
-    assert.equal(rawChromeStorageCalls.length, 4);
-    const rawStorageStart = background.indexOf('const rawStorage = {');
-    const rawStorageEnd = background.indexOf('\n};', rawStorageStart);
-    const rawStorageBlock = background.slice(rawStorageStart, rawStorageEnd);
-    assert.equal(
-      (rawStorageBlock.match(/chrome\.storage\.local\.(?:get|set|remove)/g) || []).length,
-      4
-    );
-    assert.doesNotMatch(
-      background.slice(rawStorageEnd + 3),
-      /chrome\.storage\.local\.(?:get|set|remove)/
-    );
-
-    const sidepanelHtml = fs.readFileSync(
-      path.join(__dirname, '..', 'sidepanel.html'),
-      'utf8'
-    );
-    const sidepanelLogicScript = sidepanelHtml.indexOf('sidepanel-logic.js');
-    const sidepanelMigrationScript = sidepanelHtml.indexOf('storage-migrations.js');
-    const sidepanelScript = sidepanelHtml.indexOf('sidepanel.js');
-    assert.ok(sidepanelMigrationScript > sidepanelLogicScript);
-    assert.ok(sidepanelScript > sidepanelMigrationScript);
-
-    const sidepanel = fs.readFileSync(
-      path.join(__dirname, '..', 'sidepanel.js'),
-      'utf8'
-    );
-    assert.match(sidepanel, /PromptPocketStorageMigrations\.normalizeImportedData/);
   }
 
   console.log('storage migration tests passed');

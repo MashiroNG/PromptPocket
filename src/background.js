@@ -1,11 +1,11 @@
 /* Right-Click Prompt (Local) - background service worker. No auth, no cloud. */
 
 importScripts(
-  'sidepanel-logic.js',
-  'storage-migrations.js',
-  'folder-store.js',
-  'folder-message-contract.js',
-  'injection-routing.js'
+  'shared/sidepanel-logic.js',
+  'shared/storage-migrations.js',
+  'shared/folder-store.js',
+  'shared/folder-message-contract.js',
+  'shared/injection-routing.js'
 );
 
 const MENU_ROOT = 'rcp_root';
@@ -136,29 +136,6 @@ function getOrCreateInbox(folders) {
   return inbox;
 }
 
-async function saveSelectionAsPrompt(selectionText, tab) {
-  const text = normalizePromptText(selectionText);
-  if (!text) {
-    showToast('没有可保存的选中文本');
-    return;
-  }
-
-  await folderStore.mutate((folders) => {
-    const inbox = getOrCreateInbox(folders);
-    inbox.prompts.unshift({
-      id: createId(),
-      title: makePromptTitle(text),
-      text,
-      timestamp: new Date().toISOString(),
-      sourceUrl: tab && tab.url || '',
-      sourceTitle: tab && tab.title || ''
-    });
-  });
-
-  await buildContextMenu();
-  showToast('已保存到“收件箱”');
-}
-
 function applyPopupCenterFromGeometry(popupOptions, geometry) {
   if (!geometry) return false;
   const left = Number(geometry.left);
@@ -194,9 +171,9 @@ async function prepareSaveSelectionDraft(selectionText, tab) {
     throw new Error(formatStorageError(error));
   }
 
-  const { sidepanelTheme } = await migratedStorage.get({ sidepanelTheme: 'dark' });
+  const { sidepanelTheme } = await migratedStorage.get({ sidepanelTheme: 'light' });
   return {
-    theme: sidepanelTheme === 'light' ? 'light' : 'dark'
+    theme: sidepanelTheme === 'dark' ? 'dark' : 'light'
   };
 }
 
@@ -204,7 +181,7 @@ async function openSaveSelectionWindow(selectionText, tab, geometry) {
   const prepared = await prepareSaveSelectionDraft(selectionText, tab);
   if (!prepared) return false;
 
-  const popupUrl = new URL(chrome.runtime.getURL('save-selection.html'));
+  const popupUrl = new URL(chrome.runtime.getURL('src/save-selection/save-selection.html'));
   popupUrl.searchParams.set('theme', prepared.theme);
   const popupOptions = {
     url: popupUrl.href,
@@ -666,6 +643,28 @@ async function handleSelectionCommandCopy(text, tab, frameId) {
   return { pasted: false, copied: ok };
 }
 
+async function getSidePanelState(windowId) {
+  const key = `sidePanelOpen:${windowId}`;
+  const saved = await chrome.storage.session.get(key);
+  if (typeof saved[key] === 'boolean') return { open: saved[key] };
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ['SIDE_PANEL'],
+    windowIds: [windowId]
+  });
+  return { open: contexts.length > 0 };
+}
+
+async function notifySidePanelState({ windowId }, open) {
+  await chrome.storage.session.set({ [`sidePanelOpen:${windowId}`]: open });
+  const tabs = await chrome.tabs.query({ windowId });
+  await Promise.all(tabs.map(tab => chrome.tabs.sendMessage(tab.id, {
+    action: 'sidePanelStateChanged', open
+  }).catch(() => {})));
+}
+
+chrome.sidePanel.onOpened.addListener(info => notifySidePanelState(info, true));
+chrome.sidePanel.onClosed.addListener(info => notifySidePanelState(info, false));
+
 let debounceTimer;
 function debouncedRebuild() {
   clearTimeout(debounceTimer);
@@ -756,6 +755,12 @@ const folderMessageHandler = PromptPocketFolderMessageContract.createFolderMessa
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (folderMessageHandler(msg, sender, sendResponse)) return true;
+  if (msg.action === 'getSidePanelState' && sender.tab) {
+    getSidePanelState(sender.tab.windowId)
+      .then(sendResponse)
+      .catch(() => sendResponse({ open: false }));
+    return true;
+  }
   if (msg.action === 'openSaveSelection') {
     const tab = sender && sender.tab || null;
     openSaveSelectionWindow(msg.text || '', tab, msg.geometry).then(() => sendResponse({ success: true })).catch(e => sendResponse({ success: false, error: e.message }));

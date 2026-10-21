@@ -20,6 +20,14 @@ let quickComposerMutationObserver = null;
 let quickPositionFrame = null;
 let quickRefreshToken = 0;
 let quickLastLocationHref = location.href;
+let sidePanelOpen = false;
+let sidePanelStateReceived = false;
+
+function applySidePanelState(open) {
+  sidePanelOpen = open === true;
+  if (sidePanelOpen) removeQuickPromptUi();
+  else ensureQuickLauncherForCurrentComposer();
+}
 
 function hasRuntimeContext() {
   if (!extensionFeaturesActive) return false;
@@ -45,6 +53,12 @@ const injectionMessageHandler = PromptPocketInjectionRouting.createInjectionMess
 if (hasRuntimeContext()) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg) return;
+    if (msg.action === 'sidePanelStateChanged') {
+      sidePanelStateReceived = true;
+      applySidePanelState(msg.open);
+      sendResponse({ success: true });
+      return;
+    }
     if (msg.action === 'injectPrompt') {
       try {
         injectionMessageHandler(msg).then(
@@ -68,6 +82,10 @@ if (hasRuntimeContext()) {
     if (area === 'local' && (changes.folders || changes.quickPromptScopeMode || changes.quickPromptScopeFolderId)) {
       refreshOpenQuickPanel();
     }
+  });
+  chrome.runtime.sendMessage({ action: 'getSidePanelState' }, response => {
+    if (chrome.runtime.lastError || sidePanelStateReceived) return;
+    applySidePanelState(response && response.open);
   });
 }
 
@@ -182,7 +200,7 @@ function closeSaveSelectionModal() {
 function createSaveSelectionModal(theme) {
   closeSaveSelectionModal();
 
-  const safeTheme = theme === 'light' ? 'light' : 'dark';
+  const safeTheme = theme === 'dark' ? 'dark' : 'light';
   const host = document.createElement('div');
   host.id = SAVE_MODAL_HOST_ID;
   const shadow = host.attachShadow({ mode: 'open' });
@@ -246,7 +264,7 @@ function createSaveSelectionModal(theme) {
   dialog.setAttribute('aria-label', '保存提示词');
   const frame = document.createElement('iframe');
   frame.title = '保存提示词';
-  const frameUrl = new URL(chrome.runtime.getURL('save-selection.html'));
+  const frameUrl = new URL(chrome.runtime.getURL('src/save-selection/save-selection.html'));
   frameUrl.searchParams.set('theme', safeTheme);
   frameUrl.searchParams.set('embedded', '1');
   frame.src = frameUrl.href;
@@ -876,7 +894,7 @@ function findCurrentQuickComposer() {
 }
 
 function ensureQuickLauncherForCurrentComposer() {
-  if (!extensionFeaturesActive || !isQuickPromptConversationPage()) return;
+  if (!extensionFeaturesActive || sidePanelOpen || !isQuickPromptConversationPage()) return;
   const launcher = document.getElementById(QUICK_LAUNCHER_ID);
   const panel = document.getElementById(QUICK_PANEL_ID);
   if ((launcher && document.activeElement && launcher.contains(document.activeElement)) ||
@@ -1212,7 +1230,7 @@ function ensureQuickLauncher() {
 }
 
 function positionQuickLauncher(editor) {
-  if (!hasRuntimeContext() || !editor || !editor.isConnected || !looksLikeQuickComposer(editor)) {
+  if (sidePanelOpen || !hasRuntimeContext() || !editor || !editor.isConnected || !looksLikeQuickComposer(editor)) {
     removeQuickPromptUi();
     return;
   }
@@ -1406,6 +1424,7 @@ function escapeHtmlText(text) {
 }
 
 async function toggleQuickPanel() {
+  if (sidePanelOpen) return;
   const existing = document.getElementById(QUICK_PANEL_ID);
   if (existing) {
     animateQuickPanelOut(existing);
@@ -1413,6 +1432,7 @@ async function toggleQuickPanel() {
   }
   saveComposerSelection(quickActiveEditor);
   quickPromptItems = await loadQuickPromptItems();
+  if (sidePanelOpen || !hasRuntimeContext()) return;
   const panel = ensureQuickPanel();
   const search = panel.querySelector('[data-sp-search]');
   search.value = '';
@@ -1605,10 +1625,6 @@ function setSelectionToEnd(el) {
     sel.removeAllRanges();
     sel.addRange(range);
   } catch (e) {}
-}
-
-function findGeminiEditor() {
-  return findGeminiEditors()[0] || null;
 }
 
 function findGeminiEditors() {

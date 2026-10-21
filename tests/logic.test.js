@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const logic = require('../sidepanel-logic.js');
+const logic = require('../src/shared/sidepanel-logic.js');
 
 function idFactory(prefix = 'safe') {
   let index = 0;
@@ -69,34 +69,6 @@ function titles(entries) {
   assert.equal(backups[0].folderCount, 1);
   assert.equal(backups[0].promptCount, 1);
   assert.deepEqual(logic.deletePromptBackup(backups, 'backup_a'), []);
-}
-
-{
-  const imported = logic.normalizeImportedFolders([
-    {
-      id: 'bad id<script>',
-      name: '导入文件夹',
-      prompts: [
-        { id: 'safe_prompt', title: '保留安全 ID', text: '内容' },
-        { id: 'safe_prompt', title: '重复 ID', text: '内容 2' },
-        { id: 'x"] [data-action="use', title: '', text: '' }
-      ]
-    }
-  ], idFactory('id'));
-
-  assert.equal(imported.length, 1);
-  assert.equal(imported[0].id, 'id_1');
-  assert.equal(imported[0].prompts[0].id, 'safe_prompt');
-  assert.equal(imported[0].prompts[1].id, 'id_2');
-  assert.equal(imported[0].prompts[2].id, 'id_3');
-  assert.equal(imported[0].prompts[2].title, '未命名提示词');
-}
-
-{
-  assert.throws(
-    () => logic.normalizeImportedFolders({ folders: [] }, idFactory()),
-    /文件夹数组/
-  );
 }
 
 {

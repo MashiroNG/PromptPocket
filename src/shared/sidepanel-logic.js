@@ -81,13 +81,6 @@
     return { folders: safeFolders, changed };
   }
 
-  function normalizeImportedFolders(data, idFactory = defaultIdFactory) {
-    if (!Array.isArray(data)) {
-      throw new Error('格式无效：需要文件夹数组 JSON。');
-    }
-    return sanitizeFolders(data, idFactory).folders;
-  }
-
   function countPromptsInFolders(folderList) {
     return (folderList || []).reduce((sum, folder) => sum + ((folder.prompts || []).length), 0);
   }
@@ -431,7 +424,6 @@
     makeSafeId,
     normalizePromptForStorage,
     sanitizeFolders,
-    normalizeImportedFolders,
     countPromptsInFolders,
     createPromptBackup,
     normalizePromptBackups,

@@ -1,9 +1,9 @@
 const assert = require('node:assert/strict');
-const { createFolderStore } = require('../folder-store.js');
+const { createFolderStore } = require('../src/shared/folder-store.js');
 const {
   sendRuntimeMessage,
   createFolderMessageHandler
-} = require('../folder-message-contract.js');
+} = require('../src/shared/folder-message-contract.js');
 
 function createMemoryState(initialState) {
   let state = structuredClone(initialState);
@@ -110,7 +110,7 @@ async function run() {
       revision: 3
     });
     const response = await sendRuntimeMessage(fixture.runtime, {
-      action: 'saveFolders',
+      action: 'commitFolders',
       folders: [{ id: 'folder_a', name: 'Stale', prompts: [] }],
       expectedRevision: 2
     });

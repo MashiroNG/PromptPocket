@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const routing = require('../injection-routing.js');
+const routing = require('../src/shared/injection-routing.js');
 
 function createTabsChannel({
   runtime,

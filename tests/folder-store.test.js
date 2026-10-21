@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { createFolderStore } = require('../folder-store.js');
+const { createFolderStore } = require('../src/shared/folder-store.js');
 
 function createMemoryState(initialState) {
   let state = structuredClone(initialState);

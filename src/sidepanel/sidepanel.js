@@ -9,7 +9,6 @@ let promptFolderFilterId = 'all';
 let promptPinnedOnly = false;
 let quickPromptScopeMode = 'all';
 let quickPromptScopeFolderId = '';
-let pendingImportFile = null;
 let pendingImportedFolders = null;
 let pendingImportToken = 0;
 let pendingImportError = '';
@@ -17,7 +16,7 @@ let quickManagerQuery = '';
 let aiTargets = [];
 let selectionPrompts = [];
 let aiOnSelectionEnabled = true;
-let sidepanelTheme = 'dark';
+let sidepanelTheme = 'light';
 let promptBackups = [];
 const DEFAULT_FOLDER_NAME = '收件箱';
 const QUICK_SCOPE_MODES = new Set(['all', 'pinned', 'folder']);
@@ -149,14 +148,6 @@ function normalizeSearch(s) {
 
 function getSearchTokens() {
   return promptPocketLogic.getSearchTokens(promptSearchQuery);
-}
-
-function promptMatchesSearch(prompt, folder, tokens, pinnedOnly) {
-  return promptPocketLogic.promptMatchesSearch(prompt, folder, tokens, pinnedOnly);
-}
-
-function getFilteredFolders() {
-  return promptPocketLogic.getFilteredFolders(folders, promptFolderFilterId);
 }
 
 function getPromptLocation(promptId, folderId) {
@@ -601,10 +592,6 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-function isSafeId(value) {
-  return promptPocketLogic.isSafeId(value);
-}
-
 function makeSafeId(value, usedIds = new Set()) {
   return promptPocketLogic.makeSafeId(value, usedIds, uuid);
 }
@@ -685,10 +672,6 @@ function getPinnedPromptEntries() {
     });
   });
   return entries.sort((a, b) => getPinnedTime(b.prompt) - getPinnedTime(a.prompt));
-}
-
-function getQuickTime(prompt) {
-  return promptPocketLogic.getQuickTime(prompt);
 }
 
 function getQuickPromptEntries() {
@@ -1538,10 +1521,6 @@ async function backupBeforeRestore() {
   }
 }
 
-function normalizePromptForStorage(prompt, usedPromptIds) {
-  return promptPocketLogic.normalizePromptForStorage(prompt, usedPromptIds, uuid);
-}
-
 function sanitizeFolders(folderList) {
   return promptPocketLogic.sanitizeFolders(folderList, uuid);
 }
@@ -1556,10 +1535,6 @@ function normalizeImportedFolders(data) {
 
 function countPromptsInFolders(folderList) {
   return promptPocketLogic.countPromptsInFolders(folderList);
-}
-
-function normalizeCleanupText(text) {
-  return promptPocketLogic.normalizeCleanupText(text);
 }
 
 function getCleanupReport() {
@@ -1836,7 +1811,6 @@ function updateImportDropState(file = null) {
 
 function chooseImportFile(file) {
   if (!file) return;
-  pendingImportFile = file;
   pendingImportedFolders = null;
   pendingImportError = '';
   updateImportDropState(file);
@@ -1846,7 +1820,6 @@ function chooseImportFile(file) {
 }
 
 function openImportModal(file = null) {
-  pendingImportFile = null;
   pendingImportedFolders = null;
   pendingImportError = '';
   const mergeOption = document.querySelector('input[name="importMode"][value="merge"]');
@@ -1859,7 +1832,6 @@ function openImportModal(file = null) {
 }
 
 function closeImportModal() {
-  pendingImportFile = null;
   pendingImportedFolders = null;
   pendingImportError = '';
   pendingImportToken += 1;

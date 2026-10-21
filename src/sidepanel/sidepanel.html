@@ -6,10 +6,10 @@
   <title>PromptPocket 提示词口袋</title>
   <link rel="stylesheet" href="sidepanel.css" />
 </head>
-<body>
+<body class="theme-light">
   <div class="header">
     <h1>PromptPocket <span class="version" id="appVersion">(v)</span></h1>
-    <button type="button" class="theme-toggle" id="themeToggle" aria-label="切换为白色主题" title="切换主题">
+    <button type="button" class="theme-toggle" id="themeToggle" aria-label="切换为黑色主题" title="切换主题">
       <span class="theme-thumb" aria-hidden="true"></span>
     </button>
   </div>
@@ -292,10 +292,10 @@
     </div>
   </div>
 
-  <script src="sidepanel-logic.js"></script>
-  <script src="storage-migrations.js"></script>
+  <script src="../shared/sidepanel-logic.js"></script>
+  <script src="../shared/storage-migrations.js"></script>
   <script src="sidepanel-save-logic.js"></script>
-  <script src="folder-message-contract.js"></script>
+  <script src="../shared/folder-message-contract.js"></script>
   <script src="sidepanel-runtime.js"></script>
   <script src="sidepanel.js"></script>
 </body>

@@ -100,7 +100,7 @@ function notifyStorageError(title, error) {
 }
 
 function applyTheme(theme) {
-  sidepanelTheme = theme === 'light' ? 'light' : 'dark';
+  sidepanelTheme = theme === 'dark' ? 'dark' : 'light';
   document.body.classList.toggle('theme-light', sidepanelTheme === 'light');
   const button = document.getElementById('themeToggle');
   if (button) {
@@ -111,7 +111,7 @@ function applyTheme(theme) {
 }
 
 async function loadTheme() {
-  const { sidepanelTheme: savedTheme } = await chrome.storage.local.get({ sidepanelTheme: 'dark' });
+  const { sidepanelTheme: savedTheme } = await chrome.storage.local.get({ sidepanelTheme: 'light' });
   applyTheme(savedTheme);
 }
 

@@ -23,7 +23,7 @@ function sendFolderMessage(message, options) {
 }
 
 function applyTheme(theme) {
-  document.documentElement.classList.toggle('theme-light', theme === 'light');
+  document.documentElement.classList.toggle('theme-light', theme !== 'dark');
 }
 
 function updateCharacterCounts() {
@@ -34,7 +34,7 @@ function updateCharacterCounts() {
 }
 
 async function loadTheme() {
-  const { sidepanelTheme } = await chrome.storage.local.get({ sidepanelTheme: 'dark' });
+  const { sidepanelTheme } = await chrome.storage.local.get({ sidepanelTheme: 'light' });
   applyTheme(sidepanelTheme);
 }
 

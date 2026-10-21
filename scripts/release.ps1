@@ -100,13 +100,13 @@ if ($status) {
 
 Write-Step 'Check JavaScript syntax'
 $jsFiles = @(
-  'background.js',
-  'sidepanel-logic.js',
-  'content.js',
-  'sidepanel-runtime.js',
-  'sidepanel.js',
-  'save-selection-theme.js',
-  'save-selection.js'
+  'src/background.js',
+  'src/shared/sidepanel-logic.js',
+  'src/content.js',
+  'src/sidepanel/sidepanel-runtime.js',
+  'src/sidepanel/sidepanel.js',
+  'src/save-selection/save-selection-theme.js',
+  'src/save-selection/save-selection.js'
 )
 foreach ($file in $jsFiles) {
   if (-not (Test-Path $file)) {

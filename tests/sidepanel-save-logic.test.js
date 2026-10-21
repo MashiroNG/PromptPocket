@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { reconcileFolderCommit } = require('../sidepanel-save-logic.js');
+const { reconcileFolderCommit } = require('../src/sidepanel/sidepanel-save-logic.js');
 
 {
   const result = reconcileFolderCommit({

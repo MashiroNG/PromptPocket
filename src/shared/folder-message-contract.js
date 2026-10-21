@@ -6,7 +6,6 @@
   const FOLDER_ACTIONS = new Set([
     'getFolders',
     'commitFolders',
-    'saveFolders',
     'addFolder',
     'savePromptDraft'
   ]);
@@ -51,7 +50,7 @@
           };
         }
 
-        if (message.action === 'commitFolders' || message.action === 'saveFolders') {
+        if (message.action === 'commitFolders') {
           const result = await folderStore.commitSnapshot(
             message.folders,
             message.expectedRevision

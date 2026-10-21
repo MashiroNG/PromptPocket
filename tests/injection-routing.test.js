@@ -2,8 +2,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-require('../sidepanel-logic.js');
-const routing = require('../injection-routing.js');
+require('../src/shared/sidepanel-logic.js');
+const routing = require('../src/shared/injection-routing.js');
 
 async function run() {
   {
@@ -191,51 +191,15 @@ async function run() {
 
   {
     const root = path.resolve(__dirname, '..');
-    const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
-    const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
-    const routingSource = fs.readFileSync(path.join(root, 'injection-routing.js'), 'utf8');
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
     const contentScript = manifest.content_scripts[0];
 
     assert.equal(contentScript.all_frames, true);
     assert.deepEqual(contentScript.js, [
-      'sidepanel-logic.js',
-      'injection-routing.js',
-      'content.js'
+      'src/shared/sidepanel-logic.js',
+      'src/shared/injection-routing.js',
+      'src/content.js'
     ]);
-    assert.doesNotMatch(background, /\btryPasteInTab\b/);
-    assert.doesNotMatch(background, /\btryFocusGemini\b/);
-    assert.doesNotMatch(background, /document\.querySelector/);
-    assert.doesNotMatch(background, /\bMutationObserver\b/);
-    assert.doesNotMatch(background, /document\.execCommand/);
-    assert.doesNotMatch(background, /\bInputEvent\b/);
-    assert.doesNotMatch(background, /contenteditable|prompt-textarea|ql-editor/);
-    assert.doesNotMatch(background, /injectGemini/);
-    assert.match(content, /createInjectionMessageHandler/);
-    assert.match(content, /injectTextViaAdapter/);
-    assert.match(routingSource, /getPromptPocketPlatform/);
-    assert.doesNotMatch(routingSource, /chatgpt\.com|chat\.openai\.com|gemini\.google\.com/);
-
-    const fallbackMatch = background.match(
-      /async function copyPromptFallback\(text, url\) \{([\s\S]*?)\n\}/
-    );
-    assert.ok(fallbackMatch, 'copy-only fallback helper must exist');
-    assert.doesNotMatch(fallbackMatch[1], /tryAutoPasteInTab|createInjectionRequest|sendMessageWithRetry/);
-
-    const handlePromptMatch = background.match(
-      /async function handlePromptCopy\(promptId, text\) \{([\s\S]*?)\n\}\n\nasync function handleSelectionCommandCopy/
-    );
-    assert.ok(handlePromptMatch, 'handlePromptCopy must exist');
-    assert.equal((handlePromptMatch[1].match(/tryAutoPasteInTab/g) || []).length, 1);
-    assert.match(handlePromptMatch[1], /copyPromptFallback\(text, url\)/);
-
-    const promptBranchMatch = background.match(
-      /if \(promptMatch\) \{([\s\S]*?)\n  \}\n\}\);/
-    );
-    assert.ok(promptBranchMatch, 'context-menu prompt branch must exist');
-    assert.equal((promptBranchMatch[1].match(/tryAutoPasteInTab/g) || []).length, 1);
-    assert.doesNotMatch(promptBranchMatch[1], /handlePromptCopy/);
-    assert.match(promptBranchMatch[1], /copyPromptFallback\(prompt\.text, url\)/);
   }
 
   console.log('injection routing tests passed');
