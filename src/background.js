@@ -1,11 +1,12 @@
-/* Right-Click Prompt (Local) - background service worker. No auth, no cloud. */
+/* PromptPocket background service worker. */
 
 importScripts(
   'shared/sidepanel-logic.js',
   'shared/storage-migrations.js',
   'shared/folder-store.js',
   'shared/folder-message-contract.js',
-  'shared/injection-routing.js'
+  'shared/injection-routing.js',
+  'shared/prompt-enhancement.js'
 );
 
 const MENU_ROOT = 'rcp_root';
@@ -753,7 +754,11 @@ const folderMessageHandler = PromptPocketFolderMessageContract.createFolderMessa
   onFoldersChanged: debouncedRebuild
 });
 
+const promptEnhancementHandler = PromptPocketEnhancement.createMessageHandler({ chrome });
+chrome.runtime.onConnect.addListener(promptEnhancementHandler.handleConnect);
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (promptEnhancementHandler(msg, sender, sendResponse)) return true;
   if (folderMessageHandler(msg, sender, sendResponse)) return true;
   if (msg.action === 'getSidePanelState' && sender.tab) {
     getSidePanelState(sender.tab.windowId)

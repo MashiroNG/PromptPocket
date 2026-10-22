@@ -90,11 +90,21 @@ if (hasRuntimeContext()) {
 }
 
 function getSelectedText() {
+  const active = document.activeElement;
+  if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') &&
+      Number.isInteger(active.selectionStart) && active.selectionEnd > active.selectionStart && active.type !== 'password') {
+    return active.value.slice(active.selectionStart, active.selectionEnd).trim();
+  }
   const selection = window.getSelection();
   return selection ? selection.toString().trim() : '';
 }
 
 function getSelectionRect() {
+  const active = document.activeElement;
+  if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') &&
+      Number.isInteger(active.selectionStart) && active.selectionEnd > active.selectionStart) {
+    return active.getBoundingClientRect();
+  }
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
@@ -501,6 +511,17 @@ function ensureFloatButton() {
 
   const saveButton = createSelectionFloatButton(FLOAT_BUTTON_ID, '保存提示词', true);
   const commandButton = createSelectionFloatButton(FLOAT_COMMAND_BUTTON_ID, '快捷指令');
+  const enhanceButton = createSelectionFloatButton('promptpocket-enhance-selection', '增强提示词');
+  enhanceButton.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeSelectionCommandPanel();
+    PromptPocketSelectionEnhancement.open({
+      runtime: chrome.runtime,
+      notice: showContentNotice
+    });
+    removeFloatButton();
+  });
 
   saveButton.addEventListener('click', event => {
     event.preventDefault();
@@ -536,12 +557,13 @@ function ensureFloatButton() {
     });
   });
 
-  wrap.append(saveButton, commandButton);
+  wrap.append(saveButton, commandButton, enhanceButton);
   document.documentElement.appendChild(wrap);
   return wrap;
 }
 
 function positionFloatButton() {
+  if (document.getElementById('promptpocket-enhancement-preview')) return;
   if (!hasRuntimeContext()) {
     deactivateExtensionFeatures();
     return;

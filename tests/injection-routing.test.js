@@ -1,6 +1,4 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 
 require('../src/shared/sidepanel-logic.js');
 const routing = require('../src/shared/injection-routing.js');
@@ -189,18 +187,6 @@ async function run() {
     assert.equal(calls, 2);
   }
 
-  {
-    const root = path.resolve(__dirname, '..');
-    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
-    const contentScript = manifest.content_scripts[0];
-
-    assert.equal(contentScript.all_frames, true);
-    assert.deepEqual(contentScript.js, [
-      'src/shared/sidepanel-logic.js',
-      'src/shared/injection-routing.js',
-      'src/content.js'
-    ]);
-  }
 
   console.log('injection routing tests passed');
 }

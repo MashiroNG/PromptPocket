@@ -1,8 +1,8 @@
 {
   "name": "promptpocket",
-  "version": "1.1.9",
+  "version": "1.1.11",
   "private": true,
   "scripts": {
-    "test": "node tests/logic.test.js && node tests/folder-store.test.js && node tests/storage-migrations.test.js && node tests/sidepanel-save-logic.test.js && node tests/injection-routing.test.js && node tests/folder-message-contract.test.js && node tests/injection-message-contract.test.js && node tests/theme.test.js && node tests/sidepanel-visibility.test.js"
+    "test": "node tests/logic.test.js && node tests/folder-store.test.js && node tests/storage-migrations.test.js && node tests/sidepanel-save-logic.test.js && node tests/injection-routing.test.js && node tests/folder-message-contract.test.js && node tests/injection-message-contract.test.js && node tests/theme.test.js && node tests/sidepanel-visibility.test.js && node tests/selection-enhancement.test.js && node tests/prompt-enhancement.test.js"
   }
 }

@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>选区替换与撤销回归</title>
+<p>用 Chrome 打开本文件，点击运行。检查 textarea 和 input 的选区替换、撤销、重做及输入事件。</p>
+<button id="run">运行检查</button>
+<pre id="status" role="status">尚未运行</pre>
+<textarea id="textarea">前缀：原文 后缀</textarea>
+<input id="input" type="text" value="前缀：原文 后缀">
+<script src="../src/selection-enhancement.js"></script>
+<script>
+  document.querySelector('#run').onclick = () => {
+    const status = document.querySelector('#status');
+    const assert = (value, message) => { if (!value) throw new Error(message); };
+    try {
+      for (const id of ['textarea', 'input']) {
+        const element = document.getElementById(id);
+        const original = '前缀：原文 后缀';
+        element.value = original;
+        element.focus();
+        element.setSelectionRange(3, 5);
+        const snapshot = PromptPocketSelectionEnhancement.captureSelection();
+        let observed;
+        const onInput = () => { observed = element.value; };
+        element.addEventListener('input', onInput);
+        try {
+          PromptPocketSelectionEnhancement.replaceSelection(snapshot, '增强文本');
+          assert(element.value === '前缀：增强文本 后缀', id + ' 应只替换选区');
+          assert(observed === element.value, id + ' 输入事件应反映替换结果');
+          assert(document.execCommand('undo') && element.value === original, id + ' 应能撤销增强替换');
+          assert(document.execCommand('redo') && element.value === '前缀：增强文本 后缀', id + ' 应能重做增强替换');
+        } finally { element.removeEventListener('input', onInput); }
+      }
+      status.textContent = 'PASS：textarea/input 选区替换、输入事件、撤销与重做';
+    } catch (error) {
+      status.textContent = 'FAIL：' + error.message;
+      throw error;
+    }
+  };
+</script>

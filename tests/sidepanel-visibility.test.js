@@ -14,17 +14,17 @@ async function run() {
   const session = {};
   const sent = [];
   const background = vm.createContext({
-    console, setTimeout, clearTimeout,
+    console, setTimeout, clearTimeout, URL, TextDecoder, AbortController,
     chrome: {
       runtime: {
         getURL: file => `chrome-extension://test/${file}`,
         getContexts: async filter => panels.filter(panel => filter.windowIds.includes(panel.windowId)),
-        onInstalled: event(), onMessage
+        onInstalled: event(), onConnect: event(), onMessage
       },
       sidePanel: { onOpened, onClosed },
       storage: {
         local: { get: async () => ({}), set: async () => {} },
-        session: { get: async () => session, set: async values => Object.assign(session, values) },
+        session: { get: async () => session, set: async values => Object.assign(session, values), setAccessLevel: async () => {} },
         onChanged: event()
       },
       contextMenus: { onClicked: event() },

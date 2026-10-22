@@ -115,6 +115,75 @@
       </div>
     </div>
     <div class="ai-content">
+      <section class="section" aria-labelledby="promptEnhancementTitle">
+        <div class="section-header">
+          <h2 class="section-title" id="promptEnhancementTitle">增强提示词</h2>
+        </div>
+        <p class="prompt-modal-subtitle">帮你把提示词写得更清楚。选中文字后点击“增强提示词”，先看结果，再决定是否替换。</p>
+        <form id="promptEnhancementForm" class="enhancement-settings">
+          <div class="enhancement-field">
+            <label for="promptEnhancementBaseURL">服务地址</label>
+            <input class="manager-search" id="promptEnhancementBaseURL" type="url" required maxlength="2048" value="https://api.openai.com/v1" autocomplete="off" aria-describedby="promptEnhancementAddressHelp" />
+            <p class="enhancement-help" id="promptEnhancementAddressHelp">使用其他服务？把这里换成服务商提供的接口地址。</p>
+          </div>
+          <div class="enhancement-field">
+            <label for="promptEnhancementApiKey">访问密钥</label>
+            <input class="manager-search" id="promptEnhancementApiKey" type="password" maxlength="512" placeholder="粘贴服务商提供的密钥" autocomplete="new-password" spellcheck="false" aria-describedby="promptEnhancementKeyHelp promptEnhancementKeyState" />
+            <p class="enhancement-help" id="promptEnhancementKeyHelp">在服务商网站获取。保存在本机，未由插件加密；不随导出和备份导出。</p>
+            <p id="promptEnhancementKeyState" class="enhancement-help" aria-live="polite"></p>
+          </div>
+          <div class="enhancement-field">
+            <label for="promptEnhancementModel">选择模型</label>
+            <div class="enhancement-model-controls">
+              <select class="manager-search" id="promptEnhancementModel" required aria-describedby="promptEnhancementModelHelp">
+                <option value="">请先填写地址和密钥，再获取模型</option>
+              </select>
+              <button type="button" class="btn" id="loadPromptEnhancementModels">获取模型</button>
+            </div>
+            <p class="enhancement-help" id="promptEnhancementModelHelp">选择用于增强提示词的模型。列表中的模型不一定支持文字生成，可保存后测试。</p>
+            <div id="promptEnhancementModelsStatus" class="enhancement-help" role="status" aria-live="polite"></div>
+          </div>
+          <div class="enhancement-actions">
+            <button type="submit" class="btn" id="saveTestPromptEnhancement" aria-describedby="promptEnhancementTestHelp">保存设置并测试</button>
+            <p class="enhancement-help" id="promptEnhancementTestHelp">向已保存的模型发送一条测试消息，可能产生少量费用。</p>
+            <div id="promptEnhancementStatus" class="enhancement-help" role="status" aria-live="polite" aria-atomic="true"></div>
+          </div>
+          <details class="enhancement-advanced">
+            <summary>高级设置</summary>
+            <div class="enhancement-field">
+              <div class="enhancement-field">
+                <label for="promptEnhancementSystemPrompt">系统提示词</label>
+                <textarea class="manager-search" id="promptEnhancementSystemPrompt" rows="5" maxlength="8000" aria-describedby="promptEnhancementSystemHelp"></textarea>
+                <p class="enhancement-help" id="promptEnhancementSystemHelp">规定模型如何增强文字。已填入默认规则；清空并保存可恢复默认。自定义后请自行检查是否仍保留原意。</p>
+              </div>
+              <div class="enhancement-field">
+                <label for="promptEnhancementUserPrompt">用户提示词模板</label>
+                <textarea class="manager-search" id="promptEnhancementUserPrompt" rows="4" maxlength="8000" aria-describedby="promptEnhancementUserHelp"></textarea>
+                <p class="enhancement-help" id="promptEnhancementUserHelp">用 {{text}} 代表选中文字，例如：请优化下面的提示词：{{text}}。留空时只发送选中文字。</p>
+              </div>
+              <div class="enhancement-field">
+                <label for="promptEnhancementTemperature">温度（随机程度）</label>
+                <input class="manager-search" id="promptEnhancementTemperature" type="number" min="0" max="2" step="any" placeholder="留空使用服务默认值" aria-describedby="promptEnhancementSamplingHelp" />
+                <label for="promptEnhancementTopP">采样范围（top_p）</label>
+                <input class="manager-search" id="promptEnhancementTopP" type="number" min="0" max="1" step="any" placeholder="留空使用服务默认值" aria-describedby="promptEnhancementSamplingHelp" />
+                <p class="enhancement-help" id="promptEnhancementSamplingHelp">温度 0–2，越低越稳定；采样范围 0–1，越小越集中。建议只改其中一项，部分模型不支持调整。</p>
+                <label for="promptEnhancementMaxTokens">最大输出长度</label>
+                <input class="manager-search" id="promptEnhancementMaxTokens" type="number" min="1" max="32768" step="1" placeholder="留空使用服务默认值" aria-describedby="promptEnhancementTokensHelp" />
+                <p class="enhancement-help" id="promptEnhancementTokensHelp">1–32768 个词元（模型计量单位，不等于字数），包含推理消耗。使用 max_completion_tokens 参数，不支持的服务会在测试时提示失败。</p>
+              </div>
+              <fieldset>
+                <legend>连接方式</legend>
+                <label><input type="radio" name="promptEnhancementAuth" value="bearer" checked /> 使用访问密钥（推荐）</label>
+                <label><input type="radio" name="promptEnhancementAuth" value="none" /> 不需要密钥</label>
+              </fieldset>
+              <label><input id="promptEnhancementClearKey" type="checkbox" /> 保存时清除已存密钥</label>
+              <p class="enhancement-help">仅本地或服务商明确说明免密时，选择“不需要密钥”。更换服务网站或端口时会清空密钥输入，避免发错服务。</p>
+              <p class="enhancement-help">服务需兼容 OpenAI 流式接口（SSE），地址后会自动添加 /chat/completions。网上服务须以 https:// 开头；本地可用 http://localhost 或 http://127.0.0.1。地址不能含账号、密码或问号后的参数。</p>
+            </div>
+          </details>
+          <p class="enhancement-help">获取模型和保存时请允许访问服务。只有主动增强或测试时才会发送文字。</p>
+        </form>
+      </section>
       <div class="section">
         <div class="section-header">
           <div class="section-title">AI 目标</div>
@@ -297,6 +366,8 @@
   <script src="sidepanel-save-logic.js"></script>
   <script src="../shared/folder-message-contract.js"></script>
   <script src="sidepanel-runtime.js"></script>
+  <script src="../shared/prompt-enhancement.js"></script>
+  <script src="prompt-enhancement-settings.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
